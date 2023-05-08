@@ -7,6 +7,9 @@ PROGRAMMER := avr109
 
 TOPDIR := $(shell pwd)
 BUILDDIR := $(TOPDIR)/target/$(BUILDTARGET)/release/
+DEBUGDIR := $(TOPDIR)/target/$(BUILDTARGET)/debug/
+
+DEBUG_ELF := $(DEBUGDIR)/$(TARGET).elf
 
 TARGET_ELF := $(BUILDDIR)/$(TARGET).elf
 TARGET_HEX := $(BUILDDIR)/$(TARGET).hex
@@ -22,6 +25,13 @@ flash: build
 	dfu-programmer $(ARCH) erase
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
 	dfu-programmer $(ARCH) launch
+
+debug:
+	cargo build
+	SIMAVR_UART_XTERM=1 simavr -g -m atmega32u4 $(DEBUG_ELF)
+
+debugat:
+	avr-gdb $(DEBUG_ELF)
 
 clean:
 	rm -rf $(TOPDIR)/target

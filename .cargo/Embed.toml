@@ -1,0 +1,9 @@
+[default.general]
+chip = "atmega32u4"
+
+[default.rtt]
+enabled = false
+
+[default.gdb]
+enabled = true
+

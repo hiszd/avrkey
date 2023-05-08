@@ -14,20 +14,61 @@ extern crate arduino_hal;
 extern crate avr_device;
 extern crate ufmt;
 
-use arduino_hal::{hal::port::PB0, port::Pin};
 use arduino_hal::{hal::port::PB7, port::mode::Output};
+use arduino_hal::{
+    hal::{port::PB0, Atmega},
+    pac::USART1,
+    port::Pin,
+};
 use arduino_hal::{pac::tc1::tccr1a::COM1C_A, prelude::*};
-use avr_device::atmega32u4::tc1::tccr1b::CS1_A;
 use avr_device::atmega32u4::TC1;
+use avr_device::{atmega32u4::tc1::tccr1b::CS1_A, interrupt};
 use core::mem;
+use core::{cell::RefCell, fmt::Write};
 // use panic_halt as _;
 
 use core::panic::PanicInfo;
 use ufmt::uWrite;
 
+use usb_device::prelude::*;
+static mut EP_MEMORY: [u32; 1024] = [0; 1024];
+
+type Console = arduino_hal::hal::usart::Usart1<arduino_hal::DefaultClock>;
+static CONSOLE: interrupt::Mutex<RefCell<Option<Console>>> =
+    interrupt::Mutex::new(RefCell::new(None));
+
+macro_rules! print {
+    ($($t:tt)*) => {
+        interrupt::free(
+            |cs| {
+                if let Some(console) = CONSOLE.borrow(cs).borrow_mut().as_mut() {
+                    let _ = ufmt::uwrite!(console, $($t)*);
+                }
+            },
+        )
+    };
+}
+
+macro_rules! println {
+    ($($t:tt)*) => {
+        interrupt::free(
+            |cs| {
+                if let Some(console) = CONSOLE.borrow(cs).borrow_mut().as_mut() {
+                    let _ = ufmt::uwriteln!(console, $($t)*);
+                }
+            },
+        )
+    };
+}
+
 struct InterruptState {
     blinker: Pin<Output>,
     tmr: TC1,
+    // serl: &mut arduino_hal::Usart<
+    //     USART1,
+    //     Pin<arduino_hal::port::mode::Input, arduino_hal::hal::port::PD2>,
+    //     Pin<Output, arduino_hal::hal::port::PD3>,
+    // >,
 }
 
 static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
@@ -42,7 +83,16 @@ fn main() -> ! {
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
 
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let usb = USB {
+        usb_global: dp.OTG_FS_GLOBAL,
+        usb_device: dp.OTG_FS_DEVICE,
+        usb_pwrclk: dp.OTG_FS_PWRCLK,
+        pin_dm: gpioa.pa11.into_alternate(),
+        pin_dp: gpioa.pa12.into_alternate(),
+        hclk: clocks.hclk(),
+    };
+
+    // writeln!(&mut serial, "Hello There!\r");
     // ufmt::uwriteln!(&mut serial, "Hello from Arduino!\r").void_unwrap();
 
     let led = pins.d11.into_output();
@@ -50,7 +100,9 @@ fn main() -> ! {
 
     let tmr1: TC1 = dp.TC1;
 
-    rig_timer(&tmr1, &mut serial);
+    println!("Hello World!");
+
+    rig_timer(&tmr1);
 
     unsafe {
         // SAFETY: Interrupts are not enabled at this point so we can safely write the global
@@ -78,6 +130,7 @@ fn main() -> ! {
     // .void_unwrap();
 
     loop {
+        // ufmt::uwriteln!(&mut serial, "Hello from Arduino!\r").void_unwrap();
         avr_device::asm::sleep()
     }
 }
@@ -90,7 +143,7 @@ pub const fn calc_overflow(clock_hz: u32, target_hz: u32, prescale: u32) -> u32 
     clock_hz / target_hz / prescale - 1
 }
 
-pub fn rig_timer<W: uWrite<Error = void::Void>>(tmr1: &TC1, _serial: &mut W) {
+pub fn rig_timer(tmr1: &TC1) {
     /*
      https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf
      section 15.11
@@ -113,7 +166,7 @@ pub fn rig_timer<W: uWrite<Error = void::Void>>(tmr1: &TC1, _serial: &mut W) {
     };
 
     // let ticks = calc_overflow(CLOCK_FREQUENCY_HZ, 16000000, clock_divisor) as u16;
-    let ticks = 10 as u16;
+    // let ticks = 10_u16;
     // ufmt::uwriteln!(
     // serial,
     // "configuring timer output compare register = {}",
@@ -136,6 +189,8 @@ fn TIMER1_COMPA() {
         // initialized so this ISR will never run when LED is uninitialized.
         &mut *INTERRUPT_STATE.as_mut_ptr()
     };
+
+    // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
 
     state.blinker.toggle();
     state.tmr.tcnt1.write(|w| w.bits(0b00));
