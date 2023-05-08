@@ -26,6 +26,9 @@ flash: build
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
 	dfu-programmer $(ARCH) launch
 
+flashalt: build
+	ravedude leonardo $(TARGET_ELF)
+
 debug:
 	cargo build
 	SIMAVR_UART_XTERM=1 simavr -g -m atmega32u4 $(DEBUG_ELF)

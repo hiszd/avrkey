@@ -3,6 +3,7 @@ name = "avrkey"
 version = "0.1.0"
 authors = ["Zion Koyl <hiszd1@gmail.com>"]
 license = "MIT OR Apache-2.0"
+edition = "2021"
 
 [[bin]]
 name = "avrkey"
@@ -17,14 +18,10 @@ embedded-hal = {version = "0.2.3", features = ["unproven"]}
 ws2812-timer-delay = {version="0.3", features=["slow"]}
 smart-leds = "0.3" 
 smart-leds-trait = "0.2"
-defmt = "0.3.4"
 usb-device = "0.2.9"
-
-[dependencies.usb-device]
-version = "0.5.1"
-features = [
-  "defmt",
-]
+atmega-usbd = { git = "https://github.com/agausmann/atmega-usbd.git" }
+usbd-serial = "0.1.1"
+usbd-hid = "0.6.1"
 
 [dependencies.arduino-hal]
 git = "https://github.com/rahix/avr-hal"
@@ -39,7 +36,7 @@ features = [
   # this is needed for 
   # the entry function
   "rt",
-  "ufmt",
+  "ufmt"
 ]
 
 [dependencies.either]
