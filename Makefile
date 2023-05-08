@@ -18,7 +18,7 @@ build:
 	avr-objcopy -O ihex $(TARGET_ELF) $(TARGET_HEX)
 
 
-flash:
+flash: build
 	dfu-programmer $(ARCH) erase
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
 	dfu-programmer $(ARCH) launch

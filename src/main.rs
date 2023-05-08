@@ -10,20 +10,32 @@ and then modernized to account for API drift since 2020
 
 */
 
-use arduino_hal::prelude::*;
+extern crate arduino_hal;
+extern crate avr_device;
+extern crate ufmt;
+
 use arduino_hal::{hal::port::PB0, port::Pin};
 use arduino_hal::{hal::port::PB7, port::mode::Output};
+use arduino_hal::{pac::tc1::tccr1a::COM1C_A, prelude::*};
 use avr_device::atmega32u4::tc1::tccr1b::CS1_A;
 use avr_device::atmega32u4::TC1;
 use core::mem;
-use panic_halt as _;
+// use panic_halt as _;
+
+use core::panic::PanicInfo;
 use ufmt::uWrite;
 
 struct InterruptState {
     blinker: Pin<Output>,
+    tmr: TC1,
 }
 
 static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
+}
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -34,6 +46,11 @@ fn main() -> ! {
     // ufmt::uwriteln!(&mut serial, "Hello from Arduino!\r").void_unwrap();
 
     let led = pins.d11.into_output();
+    pins.d9.into_output().set_high();
+
+    let tmr1: TC1 = dp.TC1;
+
+    rig_timer(&tmr1, &mut serial);
 
     unsafe {
         // SAFETY: Interrupts are not enabled at this point so we can safely write the global
@@ -41,13 +58,10 @@ fn main() -> ! {
         // after any operation that enables interrupts.
         INTERRUPT_STATE = mem::MaybeUninit::new(InterruptState {
             blinker: led.downgrade(),
+            tmr: tmr1,
         });
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
-
-    let tmr1: TC1 = dp.TC1;
-
-    rig_timer(&tmr1, &mut serial);
 
     // Enable interrupts globally, not a replacement for the specific interrupt enable
     unsafe {
@@ -83,8 +97,8 @@ pub fn rig_timer<W: uWrite<Error = void::Void>>(tmr1: &TC1, _serial: &mut W) {
     */
     use arduino_hal::clock::Clock;
 
-    const ARDUINO_UNO_CLOCK_FREQUENCY_HZ: u32 = arduino_hal::DefaultClock::FREQ;
-    const CLOCK_SOURCE: CS1_A = CS1_A::PRESCALE_8;
+    const CLOCK_FREQUENCY_HZ: u32 = arduino_hal::DefaultClock::FREQ;
+    const CLOCK_SOURCE: CS1_A = CS1_A::PRESCALE_256;
     let clock_divisor: u32 = match CLOCK_SOURCE {
         CS1_A::DIRECT => 1,
         CS1_A::PRESCALE_8 => 8,
@@ -98,7 +112,8 @@ pub fn rig_timer<W: uWrite<Error = void::Void>>(tmr1: &TC1, _serial: &mut W) {
         }
     };
 
-    let ticks = calc_overflow(ARDUINO_UNO_CLOCK_FREQUENCY_HZ, 4, clock_divisor) as u16;
+    // let ticks = calc_overflow(CLOCK_FREQUENCY_HZ, 16000000, clock_divisor) as u16;
+    let ticks = 10 as u16;
     // ufmt::uwriteln!(
     // serial,
     // "configuring timer output compare register = {}",
@@ -106,15 +121,11 @@ pub fn rig_timer<W: uWrite<Error = void::Void>>(tmr1: &TC1, _serial: &mut W) {
     // )
     // .void_unwrap();
 
+    tmr1.tcnt1.write(|w| w.bits(0b00));
     tmr1.tccr1a.write(|w| w.wgm1().bits(0b00));
-    tmr1.tccr1b.write(|w| {
-        w.cs1()
-            //.prescale_256()
-            .variant(CLOCK_SOURCE)
-            .wgm1()
-            .bits(0b01)
-    });
-    tmr1.ocr1a.write(|w| w.bits(ticks));
+    tmr1.tccr1b
+        .write(|w| w.cs1().prescale_256().wgm1().bits(0b01));
+    tmr1.ocr1a.write(|w| w.bits(257));
     tmr1.timsk1.write(|w| w.ocie1a().set_bit()); //enable this specific interrupt
 }
 
@@ -127,4 +138,6 @@ fn TIMER1_COMPA() {
     };
 
     state.blinker.toggle();
+    state.tmr.tcnt1.write(|w| w.bits(0b00));
+    // state.tmr.ocr1a.write(|w| w.bits(0b01));
 }
