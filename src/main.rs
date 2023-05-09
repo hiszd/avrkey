@@ -1,12 +1,9 @@
 #![no_std]
 #![no_main]
-// #![cfg_attr(not(test), no_main)]
 #![feature(lang_items)]
 #![feature(abi_avr_interrupt)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(non_snake_case)]
-
-use core::{mem, sync::atomic::AtomicPtr};
 
 use arduino_hal::{
     pac::TC1,
@@ -14,7 +11,7 @@ use arduino_hal::{
     Peripherals,
 };
 use atmega_usbd::UsbBus;
-use avr_device::{asm::sleep, interrupt};
+use avr_device::interrupt;
 use panic_halt as _;
 use usb_device::{
     class_prelude::UsbBusAllocator,
@@ -22,8 +19,8 @@ use usb_device::{
 };
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-use avr_device::interrupt::Mutex;
-use core::cell::Cell;
+// use avr_device::interrupt::Mutex;
+use core::mem;
 
 // Use Cell, if the wrapped type is Copy.
 // Use RefCell, if the wrapped type is not Copy or if you need a reference to it for other reasons.
@@ -36,11 +33,14 @@ struct InterruptState {
 
 static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
 
-static mut DEBUGMSG: Mutex<Cell<&[u8]>> = Mutex::new(Cell::new(b""));
+// static mut DEBUGMSG: Mutex<Cell<&[u8]>> = Mutex::new(Cell::new(b""));
+static mut DEBUGMSG: &[u8] = b"";
 
 #[allow(dead_code)]
 fn println(ser: &mut SerialPort<UsbBus>, msg: &[u8]) {
-    ser.write(msg).unwrap();
+    unsafe {
+        ser.write(msg).unwrap_unchecked();
+    }
 }
 
 #[arduino_hal::entry]
@@ -98,18 +98,15 @@ fn main() -> ! {
         }
 
         arduino_hal::delay_ms(3);
-        avr_device::interrupt::free(|cs| {
+        interrupt::free(|_| {
             // Interrupts are disabled here
 
             unsafe {
-                let msg_ref = DEBUGMSG.borrow(cs);
-                let msg = msg_ref.clone().into_inner();
+                let msg = &DEBUGMSG;
                 if msg != b"" {
                     println(&mut serial, msg);
-                } else {
-                    println(&mut serial, b"not");
                 }
-                msg_ref.set(b"");
+                DEBUGMSG = b"";
             }
         });
     }
@@ -165,16 +162,17 @@ fn TIMER1_COMPA() {
     // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
 
     state.blinker.toggle();
-    avr_device::interrupt::free(|cs| {
-        // Interrupts are disabled here
-
-        unsafe {
-            // Acquire mutex to global variable.
-            let msg_ref = DEBUGMSG.borrow(cs);
-            // Write to the global variable.
-            msg_ref.set(b"New thing");
-        }
-    });
+    interrupt::free(|_| unsafe { DEBUGMSG = b"interrupt" });
+    // avr_device::interrupt::free(|cs| {
+    //     // Interrupts are disabled here
+    //
+    //     unsafe {
+    //         // Acquire mutex to global variable.
+    //         let msg_ref = DEBUGMSG.borrow(cs);
+    //         // Write to the global variable.
+    //         msg_ref.set(b"New thing");
+    //     }
+    // });
     // state.tmr.tcnt1.write(|w| w.bits(0b00));
     // state.tmr.ocr1a.write(|w| w.bits(0b01));
 }
