@@ -11,19 +11,17 @@ use arduino_hal::{
     Peripherals,
 };
 use atmega_usbd::UsbBus;
-use avr_device::interrupt;
+use avr_device::interrupt::{self, CriticalSection, Mutex};
+use heapless::String;
 use panic_halt as _;
 use usb_device::{
     class_prelude::UsbBusAllocator,
-    prelude::{UsbDeviceBuilder, UsbVidPid},
+    prelude::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
 };
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 // use avr_device::interrupt::Mutex;
-use core::mem;
-
-// Use Cell, if the wrapped type is Copy.
-// Use RefCell, if the wrapped type is not Copy or if you need a reference to it for other reasons.
+use core::{cell::Cell, mem};
 
 #[allow(dead_code)]
 struct InterruptState {
@@ -33,13 +31,22 @@ struct InterruptState {
 
 static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
 
-// static mut DEBUGMSG: Mutex<Cell<&[u8]>> = Mutex::new(Cell::new(b""));
-static mut DEBUGMSG: &[u8] = b"";
+static DEBUGMSG: Mutex<Cell<String<10>>> = Mutex::new(Cell::new(String::new()));
+// static mut DEBUGMSG: String<10> = String::new();
 
 #[allow(dead_code)]
 fn println(ser: &mut SerialPort<UsbBus>, msg: &[u8]) {
     unsafe {
         ser.write(msg).unwrap_unchecked();
+    }
+}
+
+#[allow(dead_code)]
+fn printmsg(cs: CriticalSection, ser: &mut SerialPort<UsbBus>) {
+    unsafe {
+        let msg_ref = DEBUGMSG.borrow(cs);
+        ser.write(msg_ref.take().as_bytes()).unwrap_unchecked();
+        msg_ref.set("".into());
     }
 }
 
@@ -49,6 +56,12 @@ fn main() -> ! {
     let pins = arduino_hal::pins!(dp);
     let pll = dp.PLL;
     let usb = dp.USB_DEVICE;
+
+    avr_device::interrupt::free(|cs| {
+        // Interrupts are disabled here
+        let msg_ref = DEBUGMSG.borrow(cs);
+        msg_ref.set("start".into());
+    });
 
     // Configure PLL interface
     // prescale 16MHz crystal -> 8MHz
@@ -86,28 +99,47 @@ fn main() -> ! {
         // variable here.  A memory barrier afterwards ensures the compiler won't reorder this
         // after any operation that enables interrupts.
         INTERRUPT_STATE = mem::MaybeUninit::new(InterruptState {
-            blinker: pins.led_rx.into_output().downgrade(),
+            blinker: pins.d11.into_output().downgrade(),
             tmr: tmr1,
         });
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
 
+    usb_dev.force_reset().ok();
+
+    let mut bob: usize = 0;
+    let mut cycles_ready: usize = 0;
+
+    let mut cycles: u16 = 0;
+    const DIV: u16 = 40001;
+
+    let mut rgbs = pins.led_rx.into_output_high();
+
     loop {
-        if !usb_dev.poll(&mut [&mut serial]) {
+        if cycles == DIV {
+            rgbs.toggle();
+        } else {
+            cycles += 1;
+        }
+
+        if !usb_dev.poll(&mut [&mut serial])
+            || usb_dev.state() != UsbDeviceState::Configured
+            || !serial.dtr()
+        {
+            continue;
+        } else if cycles_ready < 4 {
+            println(&mut serial, b"\n");
+            cycles_ready += 1;
             continue;
         }
 
-        arduino_hal::delay_ms(3);
-        interrupt::free(|_| {
-            // Interrupts are disabled here
+        if bob < 10 {
+            println(&mut serial, b"heyonce ");
+            bob += 1;
+        }
 
-            unsafe {
-                let msg = &DEBUGMSG;
-                if msg != b"" {
-                    println(&mut serial, msg);
-                }
-                DEBUGMSG = b"";
-            }
+        interrupt::free(|cs| {
+            printmsg(cs, &mut serial);
         });
     }
 }
@@ -143,12 +175,45 @@ pub fn rig_timer(tmr1: &TC1) {
     // )
     // .void_unwrap();
 
-    tmr1.tcnt1.write(|w| w.bits(0b00));
-    tmr1.tccr1a.write(|w| w.wgm1().bits(0b00));
-    tmr1.tccr1b
-        .write(|w| w.cs1().prescale_256().wgm1().bits(0b01));
-    tmr1.ocr1a.write(|w| w.bits(1));
-    tmr1.timsk1.write(|w| w.ocie1a().set_bit()); //enable this specific interrupt
+    tmr1.tcnt1.write(|w| w.bits(0_u16));
+    tmr1.tccr1a
+        .write(|w| w.com1a().bits(0b10).wgm1().bits(0b00));
+    tmr1.tccr1b.write(|w| w.cs1().bits(0b101).wgm1().bits(0b10));
+    // tmr1.tccr1b.write(|w| unsafe { w.bits(0b00001101) });
+    tmr1.ocr1a.write(|w| w.bits(1_u16));
+    tmr1.timsk1
+        .write(|w| w.ocie1a().bit(true).toie1().bit(true)); //enable this specific interrupt
+}
+
+#[avr_device::interrupt(atmega32u4)]
+fn TIMER1_OVF() {
+    // let state = unsafe {
+    // SAFETY: We _know_ that interrupts will only be enabled after the LED global was
+    // initialized so this ISR will never run when LED is uninitialized.
+    // &mut *INTERRUPT_STATE.as_mut_ptr()
+    // };
+
+    // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
+
+    // state.blinker.toggle();
+    // state.tmr.tcnt1.write(|w| w.bits(0_u16));
+    avr_device::interrupt::free(|cs| {
+        // Interrupts are disabled here
+        let msg_ref = DEBUGMSG.borrow(cs);
+        msg_ref.set("overf".into());
+    });
+    // avr_device::interrupt::free(|cs| {
+    //     // Interrupts are disabled here
+    //
+    //     unsafe {
+    //         // Acquire mutex to global variable.
+    //         let msg_ref = DEBUGMSG.borrow(cs);
+    //         // Write to the global variable.
+    //         msg_ref.set(b"New thing");
+    //     }
+    // });
+    // state.tmr.tcnt1.write(|w| w.bits(0b00));
+    // state.tmr.ocr1a.write(|w| w.bits(0b01));
 }
 
 #[avr_device::interrupt(atmega32u4)]
@@ -162,7 +227,13 @@ fn TIMER1_COMPA() {
     // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
 
     state.blinker.toggle();
-    interrupt::free(|_| unsafe { DEBUGMSG = b"interrupt" });
+    state.tmr.tcnt1.write(|w| w.bits(0_u16));
+    avr_device::interrupt::free(|cs| {
+        // Interrupts are disabled here
+        let msg_ref = DEBUGMSG.borrow(cs);
+        msg_ref.set("inter".into());
+    });
+    // interrupt::free(|_| unsafe { DEBUGMSG = "inter".into() });
     // avr_device::interrupt::free(|cs| {
     //     // Interrupts are disabled here
     //

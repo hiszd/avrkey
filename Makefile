@@ -31,7 +31,7 @@ flashalt: build
 
 debug:
 	cargo build --release
-	SIMAVR_UART_XTERM=1 simavr -g -m atmega32u4 $(TARGET_ELF)
+	SIMAVR_UART_XTERM=1 simavr -g -f 16000000 -m atmega32u4 $(TARGET_ELF)
 
 debugat:
 	avr-gdb $(TARGET_ELF) -x .gdb/debug.gdb

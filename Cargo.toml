@@ -22,6 +22,7 @@ usb-device = "0.2.9"
 atmega-usbd = { git = "https://github.com/agausmann/atmega-usbd.git" }
 usbd-serial = "0.1.1"
 usbd-hid = "0.6.1"
+heapless = "0.7.16"
 
 [dependencies.arduino-hal]
 git = "https://github.com/rahix/avr-hal"
