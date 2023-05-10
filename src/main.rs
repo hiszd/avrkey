@@ -5,6 +5,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(non_snake_case)]
 
+mod keyscanning;
+
 use arduino_hal::{
     pac::TC1,
     port::{mode::Output, Pin},
@@ -13,10 +15,12 @@ use arduino_hal::{
 use atmega_usbd::UsbBus;
 use avr_device::interrupt::{self, CriticalSection, Mutex};
 use heapless::String;
+use keyscanning::{Col, Row};
 use panic_halt as _;
 use usb_device::{
     class_prelude::UsbBusAllocator,
     prelude::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
+    UsbError,
 };
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
@@ -29,24 +33,41 @@ struct InterruptState {
     tmr: TC1,
 }
 
+static mut USB_BUS: Option<usb_device::prelude::UsbDevice<UsbBus>> = None;
+static mut SERIAL: Option<SerialPort<UsbBus>> = None;
+
 static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
 
 static DEBUGMSG: Mutex<Cell<String<10>>> = Mutex::new(Cell::new(String::new()));
-// static mut DEBUGMSG: String<10> = String::new();
 
 #[allow(dead_code)]
-fn println(ser: &mut SerialPort<UsbBus>, msg: &[u8]) {
+fn println(msg: &[u8]) -> bool {
     unsafe {
-        ser.write(msg).unwrap_unchecked();
+        if let Some(ser) = SERIAL.as_mut() {
+            match ser.write(msg) {
+                Ok(count) => count == msg.len(),
+                Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
+                Err(_err) => false,                 // An error occurred
+            }
+        } else {
+            false
+        }
     }
 }
 
 #[allow(dead_code)]
-fn printmsg(cs: CriticalSection, ser: &mut SerialPort<UsbBus>) {
+fn printmsg(cs: CriticalSection) {
+    let msg_ref = DEBUGMSG.borrow(cs);
+    let binding = msg_ref.take();
+    let msg = binding.as_bytes();
     unsafe {
-        let msg_ref = DEBUGMSG.borrow(cs);
-        ser.write(msg_ref.take().as_bytes()).unwrap_unchecked();
-        msg_ref.set("".into());
+        if let Some(ser) = SERIAL.as_mut() {
+            match ser.write(msg) {
+                Ok(count) => count == msg.len(),
+                Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
+                Err(_err) => false,                 // An error occurred
+            };
+        }
     }
 }
 
@@ -81,15 +102,21 @@ fn main() -> ! {
         &*USB_BUS.insert(UsbBus::new(usb))
     };
 
-    let mut serial = SerialPort::new(usb_bus);
+    unsafe {
+        SERIAL = Some(SerialPort::new(usb_bus));
+    }
 
-    let mut usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .product("Serial port")
-        .device_class(USB_CLASS_CDC)
-        .build();
+    unsafe {
+        USB_BUS = Some(
+            UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+                .product("Serial port")
+                .device_class(USB_CLASS_CDC)
+                .build(),
+        );
+    }
 
     //setup timer interrupt
-    pins.d9.into_output().set_high();
+    pins.d9.into_output_high();
     let tmr1: TC1 = dp.TC1;
 
     rig_timer(&tmr1);
@@ -105,57 +132,64 @@ fn main() -> ! {
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
 
-    // usb_dev.force_reset().ok();
+    unsafe {
+        USB_BUS.as_mut().unwrap().force_reset().ok();
+    }
 
     let mut bob: usize = 0;
-    let mut cycles_ready: usize = 0;
 
-    // let mut cycles: u16 = 0;
-    let mut serial_cycles: u16 = 0;
-    // const DIV1: u16 = 30000;
-    const DIV2: u16 = 30000;
+    let mut cycles: u16 = 0;
+    const DIV1: u16 = 1000;
+
+    let mut keyon: bool = false;
+    let sendcount: u8 = 8;
 
     // let mut rgbs = pins.led_rx.into_output();
-    // let mut en = false;
-    // pins.a3.into_output_high();
-    // let inp = pins.d5.into_floating_input();
+    let mut outp = Row::new(pins.a3.into_output().downgrade());
+    outp.set_high();
+    let inp = Col::new(pins.d5.into_floating_input().downgrade().forget_imode());
 
     loop {
-        if serial_cycles == DIV2 {
-            if !usb_dev.poll(&mut [&mut serial])
-                || usb_dev.state() != UsbDeviceState::Configured
-                || !serial.dtr()
+        unsafe {
+            if poll_usb()
+                || USB_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured
+                || !SERIAL.as_mut().unwrap().dtr()
+                || !println(&[0x00])
             {
                 continue;
-            } else if cycles_ready < 4 {
-                println(&mut serial, b"\n");
-                cycles_ready += 1;
-                continue;
             }
-        } else {
-            serial_cycles += 1;
         }
 
-        // if inp.is_high() && !en {
-        //     en = true;
-        //     println(&mut serial, b"press");
-        // }
-        // if en {
-        //     if cycles == DIV {
-        //         rgbs.toggle();
-        //     } else {
-        //         cycles += 1;
-        //     }
-        // }
+        if inp.is_high() {
+            if !keyon {
+                println(b"press\r");
+            }
+            keyon = true;
+        } else if inp.is_low() {
+            if keyon {
+                println(b"no press\r");
+            }
+            keyon = false;
+        }
 
         if bob < 10 {
-            println(&mut serial, b"heyonce ");
+            println(b"heyonce ");
             bob += 1;
         }
 
         interrupt::free(|cs| {
-            printmsg(cs, &mut serial);
+            printmsg(cs);
         });
+    }
+}
+
+fn poll_usb() -> bool {
+    unsafe {
+        if let (Some(usb_dev), Some(hid)) = (USB_BUS.as_mut(), SERIAL.as_mut()) {
+            usb_dev.poll(&mut [hid])
+        } else {
+            false
+        }
     }
 }
 
