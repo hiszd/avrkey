@@ -105,33 +105,48 @@ fn main() -> ! {
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
 
-    usb_dev.force_reset().ok();
+    // usb_dev.force_reset().ok();
 
     let mut bob: usize = 0;
     let mut cycles_ready: usize = 0;
 
-    let mut cycles: u16 = 0;
-    const DIV: u16 = 40001;
+    // let mut cycles: u16 = 0;
+    let mut serial_cycles: u16 = 0;
+    // const DIV1: u16 = 30000;
+    const DIV2: u16 = 30000;
 
-    let mut rgbs = pins.led_rx.into_output_high();
+    // let mut rgbs = pins.led_rx.into_output();
+    // let mut en = false;
+    // pins.a3.into_output_high();
+    // let inp = pins.d5.into_floating_input();
 
     loop {
-        if cycles == DIV {
-            rgbs.toggle();
+        if serial_cycles == DIV2 {
+            if !usb_dev.poll(&mut [&mut serial])
+                || usb_dev.state() != UsbDeviceState::Configured
+                || !serial.dtr()
+            {
+                continue;
+            } else if cycles_ready < 4 {
+                println(&mut serial, b"\n");
+                cycles_ready += 1;
+                continue;
+            }
         } else {
-            cycles += 1;
+            serial_cycles += 1;
         }
 
-        if !usb_dev.poll(&mut [&mut serial])
-            || usb_dev.state() != UsbDeviceState::Configured
-            || !serial.dtr()
-        {
-            continue;
-        } else if cycles_ready < 4 {
-            println(&mut serial, b"\n");
-            cycles_ready += 1;
-            continue;
-        }
+        // if inp.is_high() && !en {
+        //     en = true;
+        //     println(&mut serial, b"press");
+        // }
+        // if en {
+        //     if cycles == DIV {
+        //         rgbs.toggle();
+        //     } else {
+        //         cycles += 1;
+        //     }
+        // }
 
         if bob < 10 {
             println(&mut serial, b"heyonce ");
@@ -184,7 +199,7 @@ pub fn rig_timer(tmr1: &TC1) {
     tmr1.timsk1
         .write(|w| w.ocie1a().bit(true).toie1().bit(true)); //enable this specific interrupt
 }
-
+/*
 #[avr_device::interrupt(atmega32u4)]
 fn TIMER1_OVF() {
     // let state = unsafe {
@@ -246,4 +261,4 @@ fn TIMER1_COMPA() {
     // });
     // state.tmr.tcnt1.write(|w| w.bits(0b00));
     // state.tmr.ocr1a.write(|w| w.bits(0b01));
-}
+} */
