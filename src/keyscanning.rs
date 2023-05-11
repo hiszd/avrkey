@@ -53,10 +53,17 @@ impl Col {
 pub struct KeyMatrix<const R: usize, const C: usize> {
     rows: Vec<Row, R>,
     cols: Vec<Col, C>,
-    matrix: Vec<Vec<bool, C>, R>,
+    matrix: Option<Vec<Vec<bool, C>, R>>,
 }
 
 impl<const R: usize, const C: usize> KeyMatrix<R, C> {
+    fn new(rows: Vec<Row, R>, cols: Vec<Col, C>) -> Self {
+        KeyMatrix {
+            rows,
+            cols,
+            matrix: Some(Vec::new()),
+        }
+    }
     fn poll(&mut self) {
         for r in 1..R {
             let row = r.to_ne_bytes();
@@ -67,9 +74,11 @@ impl<const R: usize, const C: usize> KeyMatrix<R, C> {
                 if self.cols[c].is_high() {
                     println(row.as_slice());
                     println(col.as_slice());
-                    self.matrix[r][c] = true;
-                } else {
-                    self.matrix[r][c] = false;
+                    if let Some(matrix) = self.matrix.as_mut() {
+                        matrix[r][c] = true;
+                    }
+                } else if let Some(matrix) = self.matrix.as_mut() {
+                    matrix[r][c] = false;
                 }
             }
             arduino_hal::delay_us(2);
