@@ -8,6 +8,8 @@ use arduino_hal::{
 };
 use heapless::Vec;
 
+use crate::println;
+
 pub struct Row {
     output: Pin<Output, Dynamic>,
 }
@@ -26,11 +28,15 @@ impl Row {
 
 pub struct Col {
     input: Pin<Input, Dynamic>,
+    // output: Option<Pin<Output, Dynamic>>,
 }
 
 impl Col {
     pub fn new(input: Pin<Input, Dynamic>) -> Self {
-        Col { input }
+        Col {
+            input,
+            // output: todo!(),
+        }
     }
     pub fn is_high(&self) -> bool {
         self.input.is_high()
@@ -38,13 +44,36 @@ impl Col {
     pub fn is_low(&self) -> bool {
         self.input.is_low()
     }
+    // TODO convert to output to drain to GND
+    // pub fn drain(&mut self) {
+    //     self.output = Some(self.input.into_output().downgrade());
+    // }
 }
 
 pub struct KeyMatrix<const R: usize, const C: usize> {
     rows: Vec<Row, R>,
     cols: Vec<Col, C>,
+    matrix: Vec<Vec<bool, C>, R>,
 }
 
 impl<const R: usize, const C: usize> KeyMatrix<R, C> {
-    fn poll() {}
+    fn poll(&mut self) {
+        for r in 1..R {
+            let row = r.to_ne_bytes();
+            self.rows[r].set_high();
+            arduino_hal::delay_us(2);
+            for c in 1..C {
+                let col = c.to_ne_bytes();
+                if self.cols[c].is_high() {
+                    println(row.as_slice());
+                    println(col.as_slice());
+                    self.matrix[r][c] = true;
+                } else {
+                    self.matrix[r][c] = false;
+                }
+            }
+            arduino_hal::delay_us(2);
+            self.rows[r].set_low();
+        }
+    }
 }

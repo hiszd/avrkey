@@ -25,11 +25,11 @@ flashdfu: build
 	dfu-programmer $(ARCH) erase
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
 	dfu-programmer $(ARCH) launch
-	sudo minicom -D /dev/ttyACM0 -w
+	sudo minicom -D /dev/ttyACM1 -w
 
 flashavr: build
 	ravedude leonardo $(TARGET_ELF)
-	sudo minicom -D /dev/ttyACM0 -w
+	sudo minicom -D /dev/ttyACM1 -w
 
 debug:
 	cargo build --release
