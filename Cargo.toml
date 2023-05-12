@@ -25,8 +25,8 @@ usbd-hid = "0.6.1"
 heapless = "0.7.16"
 
 [dependencies.arduino-hal]
-git = "https://github.com/rahix/avr-hal"
-rev = "7dfa6d322b9df98b2d98afe0e14a97afe0187ac1"
+git = "https://github.com/hiszd/avr-hal"
+branch = "dynamic-mode-switch"
 features = ["arduino-leonardo"]
 
 #![feature(abi_avr_interrupt)]
@@ -36,8 +36,7 @@ features = [
   "atmega32u4",
   # this is needed for 
   # the entry function
-  "rt",
-  "ufmt"
+  "rt"
 ]
 
 [dependencies.either]

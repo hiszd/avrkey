@@ -8,8 +8,6 @@ use arduino_hal::{
 };
 use heapless::Vec;
 
-use crate::println;
-
 pub struct Row {
     output: Pin<Output, Dynamic>,
 }
@@ -28,7 +26,6 @@ impl Row {
 
 pub struct Col {
     input: Pin<Input, Dynamic>,
-    // output: Option<Pin<Output, Dynamic>>,
 }
 
 impl Col {
@@ -44,6 +41,9 @@ impl Col {
     pub fn is_low(&self) -> bool {
         self.input.is_low()
     }
+    pub fn drain(&mut self) {
+        self.input.with_pin_as_output(|p| p.set_low());
+    }
     // TODO convert to output to drain to GND
     // pub fn drain(&mut self) {
     //     self.output = Some(self.input.into_output().downgrade());
@@ -53,35 +53,63 @@ impl Col {
 pub struct KeyMatrix<const R: usize, const C: usize> {
     rows: Vec<Row, R>,
     cols: Vec<Col, C>,
-    matrix: Option<Vec<Vec<bool, C>, R>>,
+    matrix: Vec<Vec<u16, C>, R>,
+    callback: fn(row: usize, col: usize, state: bool),
+    debounce: u16,
 }
 
 impl<const R: usize, const C: usize> KeyMatrix<R, C> {
-    fn new(rows: Vec<Row, R>, cols: Vec<Col, C>) -> Self {
+    pub fn new(
+        rows: Vec<Row, R>,
+        cols: Vec<Col, C>,
+        callback: fn(row: usize, col: usize, state: bool),
+    ) -> Self {
         KeyMatrix {
             rows,
             cols,
-            matrix: Some(Vec::new()),
+            matrix: Vec::from_iter(
+                [
+                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
+                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
+                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
+                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
+                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
+                ]
+                .into_iter(),
+            ),
+            callback,
+            debounce: 5,
         }
     }
-    fn poll(&mut self) {
-        for r in 1..R {
-            let row = r.to_ne_bytes();
+    pub fn set_debounce(&mut self, debounce: u16) {
+        self.debounce = debounce;
+    }
+    fn execute_callback(&self, row: usize, col: usize, state: bool) {
+        (self.callback)(row, col, state);
+    }
+    fn debounce(&mut self, row: usize, col: usize) -> bool {
+        if self.matrix[row][col] >= self.debounce {
+            return true;
+        }
+        self.matrix[row][col] += 1;
+        false
+    }
+    pub fn poll(&mut self) {
+        for r in 0..(R - 1) {
             self.rows[r].set_high();
-            arduino_hal::delay_us(2);
-            for c in 1..C {
-                let col = c.to_ne_bytes();
+            for c in 0..(C - 1) {
+                let prevstate = self.matrix[r][c] >= self.debounce;
+                let mut state: bool = false;
                 if self.cols[c].is_high() {
-                    println(row.as_slice());
-                    println(col.as_slice());
-                    if let Some(matrix) = self.matrix.as_mut() {
-                        matrix[r][c] = true;
-                    }
-                } else if let Some(matrix) = self.matrix.as_mut() {
-                    matrix[r][c] = false;
+                    state = self.debounce(r, c);
+                } else {
+                    self.matrix[r][c] = 0;
                 }
+                if state != prevstate {
+                    self.execute_callback(r, c, state);
+                }
+                self.cols[c].input.with_pin_as_output(|p| p.set_low());
             }
-            arduino_hal::delay_us(2);
             self.rows[r].set_low();
         }
     }

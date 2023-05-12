@@ -14,7 +14,7 @@ use arduino_hal::{
 };
 use atmega_usbd::UsbBus;
 use avr_device::interrupt::{self, CriticalSection, Mutex};
-use heapless::String;
+use heapless::{String, Vec};
 use keyscanning::{Col, Row};
 use panic_halt as _;
 use usb_device::{
@@ -25,7 +25,9 @@ use usb_device::{
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 // use avr_device::interrupt::Mutex;
-use core::{cell::Cell, mem};
+use core::cell::Cell;
+
+use crate::keyscanning::KeyMatrix;
 
 #[allow(dead_code)]
 struct InterruptState {
@@ -35,8 +37,6 @@ struct InterruptState {
 
 static mut USB_BUS: Option<usb_device::prelude::UsbDevice<UsbBus>> = None;
 static mut SERIAL: Option<SerialPort<UsbBus>> = None;
-
-static mut INTERRUPT_STATE: mem::MaybeUninit<InterruptState> = mem::MaybeUninit::uninit();
 
 static DEBUGMSG: Mutex<Cell<String<10>>> = Mutex::new(Cell::new(String::new()));
 
@@ -85,7 +85,8 @@ fn main() -> ! {
     });
 
     // Configure PLL interface
-    // prescale 16MHz crystal -> 8MHz
+    // prescale 16MHz crystal -> 8MHz ** actually I got rid of the scaling
+    // pll.pllcsr.write(|w| unsafe { w.bits(0_u8) });
     pll.pllcsr.write(|w| w.pindiv().set_bit());
     // 96MHz PLL output; /1.5 for 64MHz timers, /2 for 48MHz USB
     pll.pllfrq
@@ -116,38 +117,74 @@ fn main() -> ! {
     }
 
     //setup timer interrupt
-    pins.d9.into_output_high();
     let tmr1: TC1 = dp.TC1;
-
-    rig_timer(&tmr1);
-
-    unsafe {
-        // SAFETY: Interrupts are not enabled at this point so we can safely write the global
-        // variable here.  A memory barrier afterwards ensures the compiler won't reorder this
-        // after any operation that enables interrupts.
-        INTERRUPT_STATE = mem::MaybeUninit::new(InterruptState {
-            blinker: pins.d11.into_output().downgrade(),
-            tmr: tmr1,
-        });
-        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
-    }
+    tmr1.tccr1b.write(|w| w.cs1().prescale_8());
+    tmr1.tcnt1.write(|w| w.bits(0_u16));
 
     unsafe {
         USB_BUS.as_mut().unwrap().force_reset().ok();
     }
 
-    let mut bob: usize = 0;
+    let rows: Vec<Row, 5> = Vec::from_iter(
+        [
+            Row::new(pins.a3.into_output().downgrade()),
+            Row::new(pins.a2.into_output().downgrade()),
+            Row::new(pins.a1.into_output().downgrade()),
+            Row::new(pins.a0.into_output().downgrade()),
+            Row::new(pins.d13.into_output().downgrade()),
+        ]
+        .into_iter(),
+    );
 
-    let mut cycles: u16 = 0;
-    const DIV1: u16 = 1000;
+    let cols: Vec<Col, 16> = Vec::from_iter(
+        [
+            Col::new(pins.d5.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d7.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d9.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d8.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d6.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d12.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d4.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.led_tx.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d1.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d0.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d2.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d3.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.d11.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.miso.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.mosi.into_floating_input().downgrade().forget_imode()),
+            Col::new(pins.sck.into_floating_input().downgrade().forget_imode()),
+        ]
+        .into_iter(),
+    );
 
-    let mut keyon: bool = false;
-    let sendcount: u8 = 8;
+    fn callback(row: usize, col: usize, state: bool) {
+        // let blank: String<20> = String::from("                    \n");
+        let rowstr: String<2> = String::from(row as u32);
+        let colstr: String<2> = String::from(col as u32);
+        let mut str: String<25> = String::from("row: ");
+        str.push_str(rowstr.as_str()).unwrap();
+        str.push_str(", col: ").unwrap();
+        str.push_str(colstr.as_str()).unwrap();
+        str.push_str(match state {
+            true => " true",
+            false => " false",
+        })
+        .unwrap();
+        str.push_str("\n").unwrap();
+        // println(&blank.into_bytes());
+        println(&str.into_bytes());
+    }
 
-    // let mut rgbs = pins.led_rx.into_output();
-    let mut outp = Row::new(pins.a3.into_output().downgrade());
-    outp.set_high();
-    let inp = Col::new(pins.d5.into_floating_input().downgrade().forget_imode());
+    let mut matrix: KeyMatrix<5, 16> = KeyMatrix::new(rows, cols, callback);
+    matrix.set_debounce(150);
+
+    let mut countinit: usize = 0;
+
+    // pins.a3.into_output_high();
+    // let mut in1 = pins.d5.into_floating_input();
+    // let mut counting: usize = 0;
+    // let mut ispress: bool = false;
 
     loop {
         unsafe {
@@ -160,25 +197,36 @@ fn main() -> ! {
             }
         }
 
-        if inp.is_high() {
-            if !keyon {
-                println(b"press\r");
-            }
-            keyon = true;
-        } else if inp.is_low() {
-            if keyon {
-                println(b"no press\r");
-            }
-            keyon = false;
-        }
+        matrix.poll();
 
-        if bob < 10 {
+        // let waspress = ispress;
+        // if counting >= 10 && in1.is_high() {
+        //     ispress = true;
+        // } else if counting < 10 && in1.is_high() {
+        //     counting += 1;
+        // } else if in1.is_low() {
+        //     counting = 0;
+        //     ispress = false;
+        // }
+        // if ispress != waspress {
+        //     if ispress {
+        //         println(b"bobby\n");
+        //     } else {
+        //         println(b"sorry\r");
+        //     }
+        // }
+        //
+        // in1.with_pin_as_output(|p| p.set_low());
+
+        if countinit <= 11 {
             println(b"heyonce ");
-            bob += 1;
+            countinit += 1;
         }
 
         interrupt::free(|cs| {
-            printmsg(cs);
+            if DEBUGMSG.borrow(cs).take() != "" {
+                printmsg(cs);
+            }
         });
     }
 }
@@ -192,107 +240,3 @@ fn poll_usb() -> bool {
         }
     }
 }
-
-pub fn rig_timer(tmr1: &TC1) {
-    /*
-     https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf
-     section 15.11
-    */
-    // use arduino_hal::clock::Clock;
-
-    // const CLOCK_FREQUENCY_HZ: u32 = arduino_hal::DefaultClock::FREQ;
-    // const CLOCK_SOURCE: CS1_A = CS1_A::PRESCALE_256;
-    // let clock_divisor: u32 = match CLOCK_SOURCE {
-    //     CS1_A::DIRECT => 1,
-    //     CS1_A::PRESCALE_8 => 8,
-    //     CS1_A::PRESCALE_64 => 64,
-    //     CS1_A::PRESCALE_256 => 256,
-    //     CS1_A::PRESCALE_1024 => 1024,
-    //     CS1_A::NO_CLOCK | CS1_A::EXT_FALLING | CS1_A::EXT_RISING => {
-    //         // uwriteln!(serial, "uhoh, code tried to set the clock source to something other than a static prescaler {}", CLOCK_SOURCE as usize)
-    //         // .void_unwrap();
-    //         1
-    //     }
-    // };
-
-    // let ticks = calc_overflow(CLOCK_FREQUENCY_HZ, 16000000, clock_divisor) as u16;
-    // let ticks = 10_u16;
-    // ufmt::uwriteln!(
-    // serial,
-    // "configuring timer output compare register = {}",
-    // ticks
-    // )
-    // .void_unwrap();
-
-    tmr1.tcnt1.write(|w| w.bits(0_u16));
-    tmr1.tccr1a
-        .write(|w| w.com1a().bits(0b10).wgm1().bits(0b00));
-    tmr1.tccr1b.write(|w| w.cs1().bits(0b101).wgm1().bits(0b10));
-    // tmr1.tccr1b.write(|w| unsafe { w.bits(0b00001101) });
-    tmr1.ocr1a.write(|w| w.bits(1_u16));
-    tmr1.timsk1
-        .write(|w| w.ocie1a().bit(true).toie1().bit(true)); //enable this specific interrupt
-}
-/*
-#[avr_device::interrupt(atmega32u4)]
-fn TIMER1_OVF() {
-    // let state = unsafe {
-    // SAFETY: We _know_ that interrupts will only be enabled after the LED global was
-    // initialized so this ISR will never run when LED is uninitialized.
-    // &mut *INTERRUPT_STATE.as_mut_ptr()
-    // };
-
-    // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
-
-    // state.blinker.toggle();
-    // state.tmr.tcnt1.write(|w| w.bits(0_u16));
-    avr_device::interrupt::free(|cs| {
-        // Interrupts are disabled here
-        let msg_ref = DEBUGMSG.borrow(cs);
-        msg_ref.set("overf".into());
-    });
-    // avr_device::interrupt::free(|cs| {
-    //     // Interrupts are disabled here
-    //
-    //     unsafe {
-    //         // Acquire mutex to global variable.
-    //         let msg_ref = DEBUGMSG.borrow(cs);
-    //         // Write to the global variable.
-    //         msg_ref.set(b"New thing");
-    //     }
-    // });
-    // state.tmr.tcnt1.write(|w| w.bits(0b00));
-    // state.tmr.ocr1a.write(|w| w.bits(0b01));
-}
-
-#[avr_device::interrupt(atmega32u4)]
-fn TIMER1_COMPA() {
-    let state = unsafe {
-        // SAFETY: We _know_ that interrupts will only be enabled after the LED global was
-        // initialized so this ISR will never run when LED is uninitialized.
-        &mut *INTERRUPT_STATE.as_mut_ptr()
-    };
-
-    // ufmt::uwriteln!(&mut state.serl, "Hello from Arduino!\r").void_unwrap();
-
-    state.blinker.toggle();
-    state.tmr.tcnt1.write(|w| w.bits(0_u16));
-    avr_device::interrupt::free(|cs| {
-        // Interrupts are disabled here
-        let msg_ref = DEBUGMSG.borrow(cs);
-        msg_ref.set("inter".into());
-    });
-    // interrupt::free(|_| unsafe { DEBUGMSG = "inter".into() });
-    // avr_device::interrupt::free(|cs| {
-    //     // Interrupts are disabled here
-    //
-    //     unsafe {
-    //         // Acquire mutex to global variable.
-    //         let msg_ref = DEBUGMSG.borrow(cs);
-    //         // Write to the global variable.
-    //         msg_ref.set(b"New thing");
-    //     }
-    // });
-    // state.tmr.tcnt1.write(|w| w.bits(0b00));
-    // state.tmr.ocr1a.write(|w| w.bits(0b01));
-} */
