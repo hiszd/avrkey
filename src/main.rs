@@ -116,10 +116,15 @@ fn main() -> ! {
         );
     }
 
-    //setup timer interrupt
     let tmr1: TC1 = dp.TC1;
-    tmr1.tccr1b.write(|w| w.cs1().prescale_8());
-    tmr1.tcnt1.write(|w| w.bits(0_u16));
+    tmr1.tccr1b
+        .write(|w| w.cs1().prescale_64().wgm1().bits(0b01));
+    tmr1.ocr1a.write(|w| w.bits(20000_u16));
+    tmr1.timsk1.write(|w| w.ocie1a().set_bit());
+
+    unsafe {
+        avr_device::interrupt::enable();
+    }
 
     unsafe {
         USB_BUS.as_mut().unwrap().force_reset().ok();
