@@ -22,7 +22,7 @@ use usb_device::{
     prelude::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
     UsbError,
 };
-use usbd_serial::{SerialPort, USB_CLASS_CDC};
+use usbd_serial::SerialPort;
 
 // use avr_device::interrupt::Mutex;
 use core::cell::Cell;
@@ -103,66 +103,72 @@ fn main() -> ! {
         &*USB_BUS.insert(UsbBus::new(usb))
     };
 
-    // unsafe {
-    //     SERIAL = Some(SerialPort::new(usb_bus));
-    // }
-    let mut serial = SerialPort::new(usb_bus);
+    unsafe {
+        SERIAL = Some(SerialPort::new(usb_bus));
+    }
+    // let mut serial = SerialPort::new(usb_bus);
 
-    let mut usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .product("Serial port")
-        .device_class(USB_CLASS_CDC)
-        .build();
-
-    // unsafe {
-    //     USB_BUS = Some(
-    //         UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
-    //             .product("Serial port")
-    //             .device_class(USB_CLASS_CDC)
-    //             .build(),
-    //     );
-    // }
-
-    let tmr1: TC1 = dp.TC1;
-    tmr1.tccr1b
-        .write(|w| w.cs1().prescale_64().wgm1().bits(0b01));
-    tmr1.ocr1a.write(|w| w.bits(20000_u16));
-    tmr1.timsk1.write(|w| w.ocie1a().set_bit());
+    // let mut usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+    //     .product("Serial port")
+    //     .manufacturer("HisZd")
+    //     .serial_number("00001")
+    //     .max_packet_size_0(64_u8)
+    //     .device_class(usbd_serial::USB_CLASS_CDC)
+    //     .build();
 
     unsafe {
-        avr_device::interrupt::enable();
+        USB_BUS = Some(
+            UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+                .product("Serial port")
+                .manufacturer("HisZd")
+                .serial_number("00001")
+                .max_packet_size_0(64_u8)
+                .device_class(usbd_serial::USB_CLASS_CDC)
+                .build(),
+        );
     }
 
-    // unsafe {
-    //     USB_BUS.as_mut().unwrap().force_reset().ok();
-    // }
-    usb_dev.force_reset().ok();
+    // let tmr1: TC1 = dp.TC1;
+    // tmr1.tccr1b
+    //     .write(|w| w.cs1().prescale_64().wgm1().bits(0b01));
+    // tmr1.ocr1a.write(|w| w.bits(20000_u16));
+    // tmr1.timsk1.write(|w| w.ocie1a().set_bit());
+
+    unsafe {
+        USB_BUS.as_mut().unwrap().force_reset().ok();
+    }
+    // usb_dev.force_reset().ok();
 
     let rows: [Row; 5] = [
-        Row::new(pins.a3.into_floating_input().downgrade().forget_imode()),
-        Row::new(pins.a2.into_floating_input().downgrade().forget_imode()),
-        Row::new(pins.a1.into_floating_input().downgrade().forget_imode()),
-        Row::new(pins.a0.into_floating_input().downgrade().forget_imode()),
-        Row::new(pins.d13.into_floating_input().downgrade().forget_imode()),
+        Row::new(pins.a3.into_output().downgrade()),
+        Row::new(pins.a2.into_output().downgrade()),
+        Row::new(pins.a1.into_output().downgrade()),
+        Row::new(pins.a0.into_output().downgrade()),
+        Row::new(pins.d13.into_output().downgrade()),
     ];
 
     let cols: [Col; 16] = [
-        Col::new(pins.d5.into_output().downgrade()),
-        Col::new(pins.d7.into_output().downgrade()),
-        Col::new(pins.d9.into_output().downgrade()),
-        Col::new(pins.d8.into_output().downgrade()),
-        Col::new(pins.d6.into_output().downgrade()),
-        Col::new(pins.d12.into_output().downgrade()),
-        Col::new(pins.d4.into_output().downgrade()),
-        Col::new(pins.led_tx.into_output().downgrade()),
-        Col::new(pins.d1.into_output().downgrade()),
-        Col::new(pins.d0.into_output().downgrade()),
-        Col::new(pins.d2.into_output().downgrade()),
-        Col::new(pins.d3.into_output().downgrade()),
-        Col::new(pins.d11.into_output().downgrade()),
-        Col::new(pins.miso.into_output().downgrade()),
-        Col::new(pins.mosi.into_output().downgrade()),
-        Col::new(pins.sck.into_output().downgrade()),
+        Col::new(pins.d5.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d7.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d9.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d8.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d6.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d12.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d4.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.led_tx.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d1.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d0.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d2.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d3.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d11.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.miso.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.mosi.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.sck.into_floating_input().downgrade().forget_imode()),
     ];
+
+    fn info(info: &str) {
+        println(info.as_bytes());
+    }
 
     fn callback(row: usize, col: usize, state: bool) {
         // let blank: String<20> = String::from("                    \n");
@@ -182,14 +188,14 @@ fn main() -> ! {
         println(&str.into_bytes());
     }
 
-    let mut matrix: KeyMatrix<5, 16> = KeyMatrix::new(rows, cols, callback);
-    matrix.set_debounce(150);
+    let mut matrix: KeyMatrix<5, 16> = KeyMatrix::new(rows, cols, callback, info);
+    matrix.set_debounce(4);
 
     let mut countinit: usize = 0;
 
     loop {
         unsafe {
-            if usb_dev.poll(&mut [&mut serial])
+            if poll_usb()
                 || USB_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured
                 || !SERIAL.as_mut().unwrap().dtr()
                 || !println(&[0x00])
@@ -213,12 +219,12 @@ fn main() -> ! {
     }
 }
 
-// fn poll_usb() -> bool {
-//     unsafe {
-//         if let (Some(usb_dev), Some(hid)) = (USB_BUS.as_mut(), SERIAL.as_mut()) {
-//             usb_dev.poll(&mut [hid])
-//         } else {
-//             false
-//         }
-//     }
-// }
+fn poll_usb() -> bool {
+    unsafe {
+        if let (Some(usb_dev), Some(hid)) = (USB_BUS.as_mut(), SERIAL.as_mut()) {
+            usb_dev.poll(&mut [hid])
+        } else {
+            false
+        }
+    }
+}
