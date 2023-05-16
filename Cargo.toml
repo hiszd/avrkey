@@ -60,3 +60,6 @@ debug = true
 lto = "fat"
 # strip = true
 opt-level = "s"
+
+[patch.crates-io.usbd-serial]
+git = "https://github.com/mciantyre/usbd-serial"

@@ -6,15 +6,14 @@ use arduino_hal::{
         Pin,
     },
 };
-use heapless::Vec;
 
-pub struct Row {
+pub struct Col {
     output: Pin<Output, Dynamic>,
 }
 
-impl Row {
+impl Col {
     pub fn new(output: Pin<Output, Dynamic>) -> Self {
-        Row { output }
+        Col { output }
     }
     pub fn set_high(&mut self) {
         self.output.set_high()
@@ -24,16 +23,13 @@ impl Row {
     }
 }
 
-pub struct Col {
+pub struct Row {
     input: Pin<Input, Dynamic>,
 }
 
-impl Col {
+impl Row {
     pub fn new(input: Pin<Input, Dynamic>) -> Self {
-        Col {
-            input,
-            // output: todo!(),
-        }
+        Row { input }
     }
     pub fn is_high(&self) -> bool {
         self.input.is_high()
@@ -44,39 +40,26 @@ impl Col {
     pub fn drain(&mut self) {
         self.input.with_pin_as_output(|p| p.set_low());
     }
-    // TODO convert to output to drain to GND
-    // pub fn drain(&mut self) {
-    //     self.output = Some(self.input.into_output().downgrade());
-    // }
 }
 
 pub struct KeyMatrix<const R: usize, const C: usize> {
-    rows: Vec<Row, R>,
-    cols: Vec<Col, C>,
-    matrix: Vec<Vec<u16, C>, R>,
+    rows: [Row; R],
+    cols: [Col; C],
+    matrix: [[u16; C]; R],
     callback: fn(row: usize, col: usize, state: bool),
     debounce: u16,
 }
 
 impl<const R: usize, const C: usize> KeyMatrix<R, C> {
     pub fn new(
-        rows: Vec<Row, R>,
-        cols: Vec<Col, C>,
+        rows: [Row; R],
+        cols: [Col; C],
         callback: fn(row: usize, col: usize, state: bool),
     ) -> Self {
         KeyMatrix {
             rows,
             cols,
-            matrix: Vec::from_iter(
-                [
-                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
-                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
-                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
-                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
-                    Vec::from_iter([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].into_iter()),
-                ]
-                .into_iter(),
-            ),
+            matrix: [[0; C]; R],
             callback,
             debounce: 5,
         }
@@ -95,12 +78,12 @@ impl<const R: usize, const C: usize> KeyMatrix<R, C> {
         false
     }
     pub fn poll(&mut self) {
-        for r in 0..(R - 1) {
-            self.rows[r].set_high();
-            for c in 0..(C - 1) {
+        for c in 0..(C - 1) {
+            self.cols[c].set_high();
+            for r in 0..(R - 1) {
                 let prevstate = self.matrix[r][c] >= self.debounce;
                 let mut state: bool = false;
-                if self.cols[c].is_high() {
+                if self.rows[r].is_high() {
                     state = self.debounce(r, c);
                 } else {
                     self.matrix[r][c] = 0;
@@ -108,9 +91,9 @@ impl<const R: usize, const C: usize> KeyMatrix<R, C> {
                 if state != prevstate {
                     self.execute_callback(r, c, state);
                 }
-                self.cols[c].input.with_pin_as_output(|p| p.set_low());
+                self.rows[r].drain();
             }
-            self.rows[r].set_low();
+            self.cols[c].set_low();
         }
     }
 }
