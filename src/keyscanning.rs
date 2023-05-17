@@ -48,8 +48,15 @@ impl Col {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct KeyMatrix<const RSIZE: usize, const CSIZE: usize> {
     matrix: [[u16; CSIZE]; RSIZE],
+}
+
+impl<const RSIZE: usize, const CSIZE: usize> Default for KeyMatrix<RSIZE, CSIZE> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
@@ -60,10 +67,10 @@ impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
     }
 }
 
-pub struct StateMatrix<const R: usize, const C: usize> {
-    rows: [Row; R],
-    cols: [Col; C],
-    matrix: KeyMatrix<C, R>,
+pub struct StateMatrix<const RSIZE: usize, const CSIZE: usize> {
+    rows: [Row; RSIZE],
+    cols: [Col; CSIZE],
+    state: KeyMatrix<RSIZE, CSIZE>,
     callback: fn(row: usize, col: usize, state: bool),
     info: fn(info: &str),
     debounce: u16,
@@ -82,7 +89,7 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         let mut new = StateMatrix {
             rows,
             cols,
-            matrix: KeyMatrix::new(),
+            state: KeyMatrix::default(),
             callback,
             info,
             debounce: 5,
@@ -104,8 +111,8 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         (self.info)(info);
     }
     fn debounce(&mut self, row: usize, col: usize) -> bool {
-        self.matrix.matrix[row][col] += 1;
-        if self.matrix.matrix[row][col] >= self.debounce {
+        self.state.matrix[row][col] += 1;
+        if self.state.matrix[row][col] >= self.debounce {
             return true;
         }
         false
@@ -139,7 +146,7 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         // str.push_str(&strobe).unwrap();
         // self.execute_info(&str)
     }
-    pub fn poll(&mut self) -> Option<KeyMatrix<CSIZE, RSIZE>> {
+    pub fn poll(&mut self) -> Option<KeyMatrix<RSIZE, CSIZE>> {
         if self.cycles < self.wait_cycles {
             self.cycles += 1;
             return None;
@@ -147,20 +154,18 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         self.next_strobe();
         self.cycles = 0;
         for c in 0..(CSIZE - 1) {
-            let prevstate = self.matrix.matrix[self.cur_strobe][c] >= self.debounce;
+            let prevstate = self.state.matrix[self.cur_strobe][c] >= self.debounce;
             let mut state: bool = false;
             if self.cols[c].is_high() {
                 state = self.debounce(self.cur_strobe, c);
             } else {
-                self.matrix.matrix[self.cur_strobe][c] = 0;
+                self.state.matrix[self.cur_strobe][c] = 0;
             }
             if state != prevstate {
                 self.execute_callback(self.cur_strobe + 1, c + 1, state);
             }
         }
-        return Some(KeyMatrix {
-            matrix: self.matrix.matrix,
-        });
+        Some(self.state)
     }
 }
 
