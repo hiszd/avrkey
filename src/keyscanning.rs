@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use arduino_hal::{
     hal::port::Dynamic,
     port::{
@@ -6,7 +7,9 @@ use arduino_hal::{
         Pin,
     },
 };
-use heapless::String;
+use usbd_hid::descriptor::KeyboardReport;
+
+use crate::{key_codes::KeyCode, key_mapping};
 
 pub struct Row {
     output: Pin<Output, Dynamic>,
@@ -45,10 +48,22 @@ impl Col {
     }
 }
 
-pub struct KeyMatrix<const R: usize, const C: usize> {
+pub struct KeyMatrix<const RSIZE: usize, const CSIZE: usize> {
+    matrix: [[u16; CSIZE]; RSIZE],
+}
+
+impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
+    pub fn new() -> Self {
+        KeyMatrix {
+            matrix: [[0_u16; CSIZE]; RSIZE],
+        }
+    }
+}
+
+pub struct StateMatrix<const R: usize, const C: usize> {
     rows: [Row; R],
     cols: [Col; C],
-    matrix: [[u16; C]; R],
+    matrix: KeyMatrix<C, R>,
     callback: fn(row: usize, col: usize, state: bool),
     info: fn(info: &str),
     debounce: u16,
@@ -57,17 +72,17 @@ pub struct KeyMatrix<const R: usize, const C: usize> {
     cur_strobe: usize,
 }
 
-impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
+impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
     pub fn new(
         rows: [Row; RSIZE],
         cols: [Col; CSIZE],
         callback: fn(row: usize, col: usize, state: bool),
         info: fn(info: &str),
     ) -> Self {
-        let mut new = KeyMatrix {
+        let mut new = StateMatrix {
             rows,
             cols,
-            matrix: [[0; CSIZE]; RSIZE],
+            matrix: KeyMatrix::new(),
             callback,
             info,
             debounce: 5,
@@ -89,8 +104,8 @@ impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
         (self.info)(info);
     }
     fn debounce(&mut self, row: usize, col: usize) -> bool {
-        self.matrix[row][col] += 1;
-        if self.matrix[row][col] >= self.debounce {
+        self.matrix.matrix[row][col] += 1;
+        if self.matrix.matrix[row][col] >= self.debounce {
             return true;
         }
         false
@@ -124,24 +139,75 @@ impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
         // str.push_str(&strobe).unwrap();
         // self.execute_info(&str)
     }
-    pub fn poll(&mut self) {
+    pub fn poll(&mut self) -> Option<KeyMatrix<CSIZE, RSIZE>> {
         if self.cycles < self.wait_cycles {
             self.cycles += 1;
-            return;
+            return None;
         }
         self.next_strobe();
         self.cycles = 0;
         for c in 0..(CSIZE - 1) {
-            let prevstate = self.matrix[self.cur_strobe][c] >= self.debounce;
+            let prevstate = self.matrix.matrix[self.cur_strobe][c] >= self.debounce;
             let mut state: bool = false;
             if self.cols[c].is_high() {
                 state = self.debounce(self.cur_strobe, c);
             } else {
-                self.matrix[self.cur_strobe][c] = 0;
+                self.matrix.matrix[self.cur_strobe][c] = 0;
             }
             if state != prevstate {
                 self.execute_callback(self.cur_strobe + 1, c + 1, state);
             }
+        }
+        return Some(KeyMatrix {
+            matrix: self.matrix.matrix,
+        });
+    }
+}
+
+impl<const RSIZE: usize, const CSIZE: usize> From<KeyMatrix<RSIZE, CSIZE>>
+    for usbd_hid::descriptor::KeyboardReport
+{
+    fn from(matrix: KeyMatrix<RSIZE, CSIZE>) -> Self {
+        let mut keycodes = [0u8; 6];
+        let mut keycode_index = 0;
+        let mut modifier = 0;
+
+        let mut push_keycode = |key| {
+            if keycode_index < keycodes.len() {
+                keycodes[keycode_index] = key;
+                keycode_index += 1;
+            }
+        };
+
+        // First scan for any function keys being pressed
+        // let mut layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
+        // for (matrix_column, mapping_column) in matrix.matrix.iter().zip(layer_mapping) {
+        //     for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
+        //         if mapping_row == KeyCode::Fn && *key_pressed {
+        //             layer_mapping = key_mapping::FN_LAYER_MAPPING;
+        //         }
+        //     }
+        // }
+
+        // Second scan to generate the correct keycodes given the activated key map
+        let layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
+        for (matrix_column, mapping_column) in matrix.matrix.iter().zip(layer_mapping) {
+            for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
+                if key_pressed >= &4 {
+                    if let Some(bitmask) = mapping_row.modifier_bitmask() {
+                        modifier |= bitmask;
+                    } else {
+                        push_keycode(mapping_row as u8);
+                    }
+                }
+            }
+        }
+
+        KeyboardReport {
+            modifier,
+            reserved: 0,
+            leds: 0,
+            keycodes,
         }
     }
 }

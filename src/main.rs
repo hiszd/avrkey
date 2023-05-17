@@ -5,6 +5,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(non_snake_case)]
 
+mod hid_descriptor;
+mod key_codes;
+mod key_mapping;
 mod keyscanning;
 
 use arduino_hal::{
@@ -19,15 +22,21 @@ use keyscanning::{Col, Row};
 use panic_halt as _;
 use usb_device::{
     class_prelude::UsbBusAllocator,
-    prelude::{UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
+    prelude::{UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
     UsbError,
 };
+use usbd_hid::hid_class::HidClassSettings;
+use usbd_hid::{
+    descriptor::KeyboardReport,
+    hid_class::{HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig},
+};
+use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 use usbd_serial::SerialPort;
 
 // use avr_device::interrupt::Mutex;
 use core::cell::Cell;
 
-use crate::keyscanning::KeyMatrix;
+use crate::keyscanning::StateMatrix;
 
 #[allow(dead_code)]
 struct InterruptState {
@@ -35,41 +44,43 @@ struct InterruptState {
     tmr: TC1,
 }
 
-static mut USB_BUS: Option<usb_device::prelude::UsbDevice<UsbBus>> = None;
+static mut USB_ALLOCATOR: Option<UsbBusAllocator<UsbBus>> = None;
+static mut USB_BUS: Option<UsbDevice<UsbBus>> = None;
+static mut USB_HID: Option<HIDClass<UsbBus>> = None;
 static mut SERIAL: Option<SerialPort<UsbBus>> = None;
 
 static DEBUGMSG: Mutex<Cell<String<10>>> = Mutex::new(Cell::new(String::new()));
 
-#[allow(dead_code)]
-fn println(msg: &[u8]) -> bool {
-    unsafe {
-        if let Some(ser) = SERIAL.as_mut() {
-            match ser.write(msg) {
-                Ok(count) => count == msg.len(),
-                Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
-                Err(_err) => false,                 // An error occurred
-            }
-        } else {
-            false
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn printmsg(cs: CriticalSection) {
-    let msg_ref = DEBUGMSG.borrow(cs);
-    let binding = msg_ref.take();
-    let msg = binding.as_bytes();
-    unsafe {
-        if let Some(ser) = SERIAL.as_mut() {
-            match ser.write(msg) {
-                Ok(count) => count == msg.len(),
-                Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
-                Err(_err) => false,                 // An error occurred
-            };
-        }
-    }
-}
+// #[allow(dead_code)]
+// fn println(msg: &[u8]) -> bool {
+//     unsafe {
+//         if let Some(ser) = SERIAL.as_mut() {
+//             match ser.write(msg) {
+//                 Ok(count) => count == msg.len(),
+//                 Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
+//                 Err(_err) => false,                 // An error occurred
+//             }
+//         } else {
+//             false
+//         }
+//     }
+// }
+//
+// #[allow(dead_code)]
+// fn printmsg(cs: CriticalSection) {
+//     let msg_ref = DEBUGMSG.borrow(cs);
+//     let binding = msg_ref.take();
+//     let msg = binding.as_bytes();
+//     unsafe {
+//         if let Some(ser) = SERIAL.as_mut() {
+//             match ser.write(msg) {
+//                 Ok(count) => count == msg.len(),
+//                 Err(UsbError::WouldBlock) => false, // No data could be written (buffers full)
+//                 Err(_err) => false,                 // An error occurred
+//             };
+//         }
+//     }
+// }
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -98,46 +109,54 @@ fn main() -> ! {
     // Check PLL lock
     while pll.pllcsr.read().plock().bit_is_clear() {}
 
-    let usb_bus = unsafe {
-        static mut USB_BUS: Option<UsbBusAllocator<UsbBus>> = None;
-        &*USB_BUS.insert(UsbBus::new(usb))
+    let bus_allocator = unsafe {
+        USB_ALLOCATOR = Some(UsbBus::new(usb));
+        USB_ALLOCATOR.as_ref().unwrap()
     };
 
-    unsafe {
-        SERIAL = Some(SerialPort::new(usb_bus));
-    }
-    // let mut serial = SerialPort::new(usb_bus);
+    // unsafe {
+    //     SERIAL = Some(SerialPort::new(bus_allocator));
+    // }
 
-    // let mut usb_dev = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
+    // The latest keyboard report for responding to USB interrupts.
+    let mut key_report: KeyboardReport = KeyboardReport {
+        modifier: 0,
+        reserved: 0,
+        leds: 0,
+        keycodes: [0u8; 6],
+    };
+
+    let mut hid_endpoint = HIDClass::new_with_settings(
+        bus_allocator,
+        KeyboardReport::desc(),
+        // Keyboard Polling Rate
+        1,
+        HidClassSettings {
+            subclass: HidSubClass::NoSubClass,
+            protocol: HidProtocol::Keyboard,
+            config: ProtocolModeConfig::ForceReport,
+            locale: HidCountryCode::US,
+        },
+    );
+    let mut keyboard_usb_device = UsbDeviceBuilder::new(bus_allocator, UsbVidPid(0x16c0, 0x27db))
+        .manufacturer("HisZd")
+        .product("avrkey")
+        .supports_remote_wakeup(true)
+        .build();
+
+    // let mut usb_hid = unsafe {
+    //     USB_HID = Some(hid_endpoint);
+    //     USB_HID.as_ref().unwrap()
+    // };
+    // let mut serial_bus = UsbDeviceBuilder::new(bus_allocator, UsbVidPid(0x16c0, 0x27dd))
     //     .product("Serial port")
     //     .manufacturer("HisZd")
     //     .serial_number("00001")
     //     .max_packet_size_0(64_u8)
     //     .device_class(usbd_serial::USB_CLASS_CDC)
     //     .build();
-
-    unsafe {
-        USB_BUS = Some(
-            UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x16c0, 0x27dd))
-                .product("Serial port")
-                .manufacturer("HisZd")
-                .serial_number("00001")
-                .max_packet_size_0(64_u8)
-                .device_class(usbd_serial::USB_CLASS_CDC)
-                .build(),
-        );
-    }
-
-    // let tmr1: TC1 = dp.TC1;
-    // tmr1.tccr1b
-    //     .write(|w| w.cs1().prescale_64().wgm1().bits(0b01));
-    // tmr1.ocr1a.write(|w| w.bits(20000_u16));
-    // tmr1.timsk1.write(|w| w.ocie1a().set_bit());
-
-    unsafe {
-        USB_BUS.as_mut().unwrap().force_reset().ok();
-    }
-    // usb_dev.force_reset().ok();
+    //
+    // serial_bus.force_reset().ok();
 
     let rows: [Row; 5] = [
         Row::new(pins.a3.into_output().downgrade()),
@@ -167,64 +186,87 @@ fn main() -> ! {
     ];
 
     fn info(info: &str) {
-        println(info.as_bytes());
+        // println(info.as_bytes());
     }
 
     fn callback(row: usize, col: usize, state: bool) {
         // let blank: String<20> = String::from("                    \n");
-        let rowstr: String<2> = String::from(row as u32);
-        let colstr: String<2> = String::from(col as u32);
-        let mut str: String<25> = String::from("row: ");
-        str.push_str(rowstr.as_str()).unwrap();
-        str.push_str(", col: ").unwrap();
-        str.push_str(colstr.as_str()).unwrap();
-        str.push_str(match state {
-            true => " true",
-            false => " false",
-        })
-        .unwrap();
-        str.push_str("\n").unwrap();
-        // println(&blank.into_bytes());
-        println(&str.into_bytes());
+        // let rowstr: String<2> = String::from(row as u32);
+        // let colstr: String<2> = String::from(col as u32);
+        // let mut str: String<25> = String::from("row: ");
+        // str.push_str(rowstr.as_str()).unwrap();
+        // str.push_str(", col: ").unwrap();
+        // str.push_str(colstr.as_str()).unwrap();
+        // str.push_str(match state {
+        //     true => " true",
+        //     false => " false",
+        // })
+        // .unwrap();
+        // str.push_str("\n").unwrap();
+        // // println(&blank.into_bytes());
+        // println(&str.into_bytes());
     }
 
-    let mut matrix: KeyMatrix<5, 16> = KeyMatrix::new(rows, cols, callback, info);
+    let mut matrix: StateMatrix<5, 16> = StateMatrix::new(rows, cols, callback, info);
     matrix.set_debounce(4);
 
-    let mut countinit: usize = 0;
+    // let mut countinit: usize = 0;
 
     loop {
+        // unsafe {
+        //     if poll_usb() || USB_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured
+        //     // || !SERIAL.as_mut().unwrap().dtr()
+        //     // || !println(&[0x00])
+        //     {
+        //         continue;
+        //     }
+        // }
+        keyboard_usb_device.poll(&mut [&mut hid_endpoint]);
+
+        // key_report = matrix.poll().unwrap().into();
         unsafe {
-            if poll_usb()
-                || USB_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured
-                || !SERIAL.as_mut().unwrap().dtr()
-                || !println(&[0x00])
-            {
-                continue;
-            }
+            let usb_hid = USB_HID.as_ref().unwrap_unchecked();
+            usb_hid.push_input(&key_report).unwrap_unchecked();
+            // macOS doesn't like it when you don't pull this, apparently.
+            // TODO: maybe even parse something here
+            usb_hid.pull_raw_output(&mut [0; 64]).ok();
+            // Wake the host if a key is pressed and the device supports
+            // remote wakeup.
+            // if !report_is_empty(&key_report)
+            //     && keyboard_usb_device.state() == UsbDeviceState::Suspend
+            //     && keyboard_usb_device.remote_wakeup_enabled()
+            // {
+            //     keyboard_usb_device.
+            // }
         }
 
-        matrix.poll();
+        // if countinit <= 11 {
+        //     println(b"heyonce ");
+        //     countinit += 1;
+        // }
 
-        if countinit <= 11 {
-            println(b"heyonce ");
-            countinit += 1;
-        }
-
-        interrupt::free(|cs| {
-            if DEBUGMSG.borrow(cs).take() != "" {
-                printmsg(cs);
-            }
-        });
+        // interrupt::free(|cs| {
+        //     if DEBUGMSG.borrow(cs).take() != "" {
+        //         printmsg(cs);
+        //     }
+        // });
     }
 }
 
 fn poll_usb() -> bool {
     unsafe {
-        if let (Some(usb_dev), Some(hid)) = (USB_BUS.as_mut(), SERIAL.as_mut()) {
+        if let (Some(usb_dev), Some(hid)) = (USB_BUS.as_mut(), USB_HID.as_mut()) {
             usb_dev.poll(&mut [hid])
         } else {
             false
         }
     }
+}
+
+fn report_is_empty(report: &KeyboardReport) -> bool {
+    report.modifier != 0
+        || report
+            .keycodes
+            .iter()
+            .any(|key| *key != key_codes::KeyCode::Emp as u8)
 }
