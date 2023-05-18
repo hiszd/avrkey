@@ -152,9 +152,7 @@ fn main() -> ! {
     // TODO reboot into bootloader if started while escape is pressed.
     // ISSUE there doesn't appear to be any way of doing this in the HAL currently
     // let scan = matrix.poll().unwrap();
-    // if scan[0][0] >= 4 {
-    //     arduino_hal::
-    // }
+    // if scan[0][0] >= 4 {}
 
     let mut countinit: usize = 0;
 
@@ -215,4 +213,3 @@ fn poll_usb() -> bool {
         true
     }
 }
-
