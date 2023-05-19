@@ -1,0 +1,10 @@
+* Implement Modules
+  Implement the ability to expand the functionality of the firmware by adding modules.
+** todos
+*** ( ) TODO keys use functions to return keycodes
+* Future Features
+** Mod-Tap
+   Tapping has one action, holding has another.
+*** todos
+**** ( ) TODO Store state type for key(Tap,Hold,Idle)
+**** ( ) TODO Store currently held keys

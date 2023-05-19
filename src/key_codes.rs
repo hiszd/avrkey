@@ -1,162 +1,163 @@
 #[allow(unused)]
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq)]
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub enum KeyCode {
     /// Empty
-    Emptyzzz = 0x0,
-    LtrAzzzz = 0x04,
-    LtrBzzzz = 0x05,
-    LtrCzzzz = 0x06,
-    LtrDzzzz = 0x07,
-    LtrEzzzz = 0x08,
-    LtrFzzzz = 0x09,
-    LtrGzzzz = 0x0A,
-    LtrHzzzz = 0x0B,
-    LtrIzzzz = 0x0C,
-    LtrJzzzz = 0x0D,
-    LtrKzzzz = 0x0E,
-    LtrLzzzz = 0x0F,
-    LtrMzzzz = 0x10,
-    LtrNzzzz = 0x11,
-    LtrOzzzz = 0x12,
-    LtrPzzzz = 0x13,
-    LtrQzzzz = 0x14,
-    LtrRzzzz = 0x15,
-    LtrSzzzz = 0x16,
-    LtrTzzzz = 0x17,
-    LtrUzzzz = 0x18,
-    LtrVzzzz = 0x19,
-    LtrWzzzz = 0x1A,
-    LtrXzzzz = 0x1B,
-    LtrYzzzz = 0x1C,
-    LtrZzzzz = 0x1D,
-    Num1zzzz = 0x1E,
-    Num2zzzz = 0x1F,
-    Num3zzzz = 0x20,
-    Num4zzzz = 0x21,
-    Num5zzzz = 0x22,
-    Num6zzzz = 0x23,
-    Num7zzzz = 0x24,
-    Num8zzzz = 0x25,
-    Num9zzzz = 0x26,
-    Num0zzzz = 0x27,
+    ________,
+    Ltr_Azzz,
+    Ltr_Bzzz,
+    Ltr_Czzz,
+    Ltr_Dzzz,
+    Ltr_Ezzz,
+    Ltr_Fzzz,
+    Ltr_Gzzz,
+    Ltr_Hzzz,
+    Ltr_Izzz,
+    Ltr_Jzzz,
+    Ltr_Kzzz,
+    Ltr_Lzzz,
+    Ltr_Mzzz,
+    Ltr_Nzzz,
+    Ltr_Ozzz,
+    Ltr_Pzzz,
+    Ltr_Qzzz,
+    Ltr_Rzzz,
+    Ltr_Szzz,
+    Ltr_Tzzz,
+    Ltr_Uzzz,
+    Ltr_Vzzz,
+    Ltr_Wzzz,
+    Ltr_Xzzz,
+    Ltr_Yzzz,
+    Ltr_Zzzz,
+    Num_1zzz,
+    Num_2zzz,
+    Num_3zzz,
+    Num_4zzz,
+    Num_5zzz,
+    Num_6zzz,
+    Num_7zzz,
+    Num_8zzz,
+    Num_9zzz,
+    Num_0zzz,
     /// Enter
-    FunEntzz = 0x28,
+    Fun_Entz,
     /// Escape
-    FunEsczz = 0x29,
+    Fun_Escz,
     /// Backspace
-    FunBkspz = 0x2A,
+    Fun_Bksp,
     /// Tab
-    FunTabzz = 0x2B,
+    Fun_Tabz,
     /// Space
-    FunSpczz = 0x2C,
+    Fun_Spcz,
     /// Minus
-    SymMinzz = 0x2D,
+    Sym_Minz,
     /// Equals
-    SymEquzz = 0x2E,
+    Sym_Equz,
     /// Left Square Bracket
-    SymLBrkz = 0x2F,
+    Sym_LBrk,
     /// Right Square Bracket
-    SymRBrkz = 0x30,
+    Sym_RBrk,
     /// Backslash
-    SymBszzz = 0x31,
+    Sym_Bszz,
     /// Semicolon
-    SymSclnz = 0x33,
+    Sym_Scln,
     /// Single Quote
-    SymSQuot = 0x34,
+    Sym_SQut,
     /// Tilde
-    SymTilde = 0x35,
+    Sym_Tild,
     /// Comma
-    SymComma = 0x36,
+    Sym_Coma,
     /// Period
-    SymPerdz = 0x37,
+    Sym_Perd,
     /// Forward Slash
-    SymFSlaz = 0x38,
+    Sym_FSla,
     /// Capslock
-    FunCapsz = 0x39,
-    FunF1zzz = 0x3A,
-    FunF2zzz = 0x3B,
-    FunF3zzz = 0x3C,
-    FunF4zzz = 0x3D,
-    FunF5zzz = 0x3E,
-    FunF6zzz = 0x3F,
-    FunF7zzz = 0x40,
-    FunF8zzz = 0x41,
-    FunF9zzz = 0x42,
-    FunF10zz = 0x43,
-    FunF11zz = 0x44,
-    FunF12zz = 0x45,
+    Fun_Caps,
+    Fun_F1zz,
+    Fun_F2zz,
+    Fun_F3zz,
+    Fun_F4zz,
+    Fun_F5zz,
+    Fun_F6zz,
+    Fun_F7zz,
+    Fun_F8zz,
+    Fun_F9zz,
+    Fun_F10z,
+    Fun_F11z,
+    Fun_F12z,
 
     /// Right
-    ArwRight = 0x4F,
+    Arw_Rght,
     /// Left
-    ArwLeftz = 0x50,
+    Arw_Left,
     /// Down
-    ArwDownz = 0x51,
+    Arw_Down,
     /// Up
-    ArwUpzzz = 0x52,
+    Arw_Upzz,
 
     /// Home
-    FunHomez = 0x4A,
+    Fun_Home,
     /// PageUp
-    FunPgUpz = 0x4B,
+    Fun_PgUp,
     /// Delete
-    FunDelet = 0x4C,
+    Fun_Delz,
     /// End
-    FunEndzz = 0x4D,
+    Fun_Endz,
     /// PageDown
-    FunPgDwn = 0x4E,
+    Fun_PgDn,
 
     // Media Keys
     /// Volume Mute
-    VolMutez = 0x7F,
+    Vol_Mute,
     /// Volume Up
-    VolUpzzz = 0x80,
+    Vol_Upzz,
     /// Volume Down
-    VolDownz = 0x81,
+    Vol_Down,
 
     // Keypad keys
     /// Left Paren
-    SymLParn = 0xB6,
+    Sym_LPar,
     /// Right Paren
-    SymRParn = 0xB7,
+    Sym_RPar,
 
     // Modifier keys
-    ModLay01 = 0xF0,
+    Mod_L01z,
     /// Left Shift
-    ModLShft = 0xF1,
+    Mod_LSft,
     /// Left Control
-    ModLCtrl = 0xF2,
+    Mod_LCtl,
     /// Left Alt
-    ModLAltz = 0xF3,
+    Mod_LAlt,
     /// Left Command
-    ModLCmdz = 0xF4,
+    Mod_LCmd,
     /// Right Command
-    ModRCmdz = 0xF5,
+    Mod_RCmd,
     /// Right Alt
-    ModRAltz = 0xF6,
+    Mod_RAlt,
     /// Right Ctrl
-    ModRCtrl = 0xF7,
+    Mod_RCtl,
     /// Right Shift
-    ModRShft = 0xF8,
+    Mod_RSft,
 }
 
 impl KeyCode {
     pub fn modifier_bitmask(&self) -> Option<u8> {
         match *self {
-            KeyCode::ModLCtrl => Some(1 << 0),
-            KeyCode::ModLShft => Some(1 << 1),
-            KeyCode::ModLAltz => Some(1 << 2),
-            KeyCode::ModLCmdz => Some(1 << 3),
-            KeyCode::ModRCtrl => Some(1 << 4),
-            KeyCode::ModRShft => Some(1 << 5),
-            KeyCode::ModRAltz => Some(1 << 6),
-            KeyCode::ModRCmdz => Some(1 << 7),
+            KeyCode::Mod_LCtl => Some(1 << 0),
+            KeyCode::Mod_LSft => Some(1 << 1),
+            KeyCode::Mod_LAlt => Some(1 << 2),
+            KeyCode::Mod_LCmd => Some(1 << 3),
+            KeyCode::Mod_RCtl => Some(1 << 4),
+            KeyCode::Mod_RSft => Some(1 << 5),
+            KeyCode::Mod_RAlt => Some(1 << 6),
+            KeyCode::Mod_RCmd => Some(1 << 7),
             _ => None,
         }
     }
 
     pub fn is_modifier(&self) -> bool {
-        *self == KeyCode::ModLay01 || self.modifier_bitmask().is_some()
+        *self == KeyCode::Mod_L01z || self.modifier_bitmask().is_some()
     }
 }
