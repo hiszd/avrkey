@@ -10,13 +10,8 @@ mod key_codes;
 mod key_mapping;
 mod keyscanning;
 
-use arduino_hal::{
-    pac::TC1,
-    port::{mode::Output, Pin},
-    Peripherals,
-};
+use arduino_hal::Peripherals;
 use atmega_usbd::UsbBus;
-use avr_device::interrupt::{self, CriticalSection, Mutex};
 use heapless::String;
 use keyscanning::{Col, Row};
 use panic_halt as _;
@@ -25,11 +20,7 @@ use usb_device::{
     prelude::{UsbDevice, UsbDeviceBuilder, UsbDeviceState, UsbVidPid},
     UsbError,
 };
-use usbd_hid::hid_class::HidClassSettings;
-use usbd_hid::{
-    descriptor::KeyboardReport,
-    hid_class::{HidCountryCode, HidProtocol, HidSubClass, ProtocolModeConfig},
-};
+use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 use usbd_serial::SerialPort;
 
@@ -148,7 +139,7 @@ fn main() -> ! {
     }
 
     let mut matrix: StateMatrix<5, 16> = StateMatrix::new(rows, cols, callback, info);
-    matrix.set_debounce(4);
+    matrix.set_debounce(3);
     // TODO reboot into bootloader if started while escape is pressed.
     // ISSUE there doesn't appear to be any way of doing this in the HAL currently
     // let scan = matrix.poll().unwrap();

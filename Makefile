@@ -21,15 +21,23 @@ build:
 	avr-objcopy -O ihex $(TARGET_ELF) $(TARGET_HEX)
 
 
-flashdfu: build
+flashserdfu: build
 	dfu-programmer $(ARCH) erase
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
 	dfu-programmer $(ARCH) launch
 	sudo minicom -D /dev/ttyACM0 -w
 
-flashavr: build
+flashdfu: build
+	dfu-programmer $(ARCH) erase
+	dfu-programmer $(ARCH) flash $(TARGET_HEX)
+	dfu-programmer $(ARCH) launch
+
+flashseravr: build
 	ravedude leonardo $(TARGET_ELF)
 	sudo minicom -D /dev/ttyACM0 -w
+
+flashavr: build
+	ravedude leonardo $(TARGET_ELF)
 
 debug:
 	cargo build --release

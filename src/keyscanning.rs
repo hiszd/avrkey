@@ -93,7 +93,7 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
             callback,
             info,
             debounce: 5,
-            wait_cycles: 5,
+            wait_cycles: 2,
             cycles: 0,
             cur_strobe: 0,
         };
@@ -153,7 +153,7 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         }
         self.next_strobe();
         self.cycles = 0;
-        for c in 0..(CSIZE - 1) {
+        for c in 0..CSIZE {
             let prevstate = self.state.matrix[self.cur_strobe][c] >= self.debounce;
             let mut state: bool = false;
             if self.cols[c].is_high() {
