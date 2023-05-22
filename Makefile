@@ -24,8 +24,9 @@ build:
 flashserdfu: build
 	dfu-programmer $(ARCH) erase
 	dfu-programmer $(ARCH) flash $(TARGET_HEX)
-	dfu-programmer $(ARCH) launch
-	sudo minicom -D /dev/ttyACM0 -w
+	dfu-programmer $(ARCH) launch --no-reset
+	# sudo minicom -D /dev/ttyACM0 -w
+	sudo tail -F /dev/ttyACM0
 
 flashdfu: build
 	dfu-programmer $(ARCH) erase

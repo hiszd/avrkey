@@ -25,7 +25,8 @@ use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 use usbd_serial::SerialPort;
 
-use crate::keyscanning::{Matrix, StateType};
+use crate::keyscanning::Matrix;
+use crate::keyscanning::StateType;
 
 #[allow(dead_code)]
 fn println(msg: &[u8]) -> bool {
@@ -79,7 +80,7 @@ fn main() -> ! {
                 .supports_remote_wakeup(true)
                 .build(),
         );
-        HID_BUS.as_mut().unwrap().force_reset().ok();
+        // HID_BUS.as_mut().unwrap().force_reset().ok();
     }
 
     let rows: [Row; 5] = [
@@ -101,7 +102,8 @@ fn main() -> ! {
         Col::new(pins.led_tx.into_floating_input().downgrade().forget_imode()),
         Col::new(pins.d1.into_floating_input().downgrade().forget_imode()),
         Col::new(pins.d0.into_floating_input().downgrade().forget_imode()),
-        Col::new(pins.d2.into_floating_input().downgrade().forget_imode()),
+        // Col::new(pins.d2.into_floating_input().downgrade().forget_imode()),
+        Col::new(pins.d10.into_floating_input().downgrade().forget_imode()),
         Col::new(pins.d3.into_floating_input().downgrade().forget_imode()),
         Col::new(pins.d11.into_floating_input().downgrade().forget_imode()),
         Col::new(pins.miso.into_floating_input().downgrade().forget_imode()),
@@ -165,7 +167,7 @@ fn main() -> ! {
         }
     }
 
-    let mut matrix: Matrix<5, 16> = Matrix::new(
+    let matrix: Matrix<5, 16> = Matrix::new(
         rows,
         cols,
         callback,
@@ -173,13 +175,28 @@ fn main() -> ! {
         push_input,
         key_mapping::FancyAlice66(),
     );
-    matrix.set_debounce(3);
     // TODO reboot into bootloader if started while escape is pressed.
     // ISSUE there doesn't appear to be any way of doing this in the HAL currently
     // let scan = matrix.poll().unwrap();
     // if scan[0][0] >= 4 {}
 
     let mut countinit: usize = 0;
+
+    let mut cnt: usize = 0;
+    let mut ledpin = pins.d2.into_output();
+    let mut cntfn = || {
+        if cnt < 3000 {
+            cnt += 1;
+        } else {
+            ledpin.toggle();
+            cnt = 0;
+            if ledpin.is_set_high() {
+                println(b"high\n");
+            } else {
+                println(b"low\n");
+            }
+        }
+    };
 
     loop {
         unsafe {
@@ -188,11 +205,15 @@ fn main() -> ! {
             }
         }
 
-        matrix.poll();
+        cntfn();
 
-        if countinit <= 11 {
-            println(b"heyonce ");
-            countinit += 1;
+        // matrix.poll();
+
+        unsafe {
+            if countinit <= 5 && USB_SERIAL.as_mut().unwrap().dtr() {
+                println(b"heyonce ");
+                countinit += 1;
+            }
         }
     }
 }

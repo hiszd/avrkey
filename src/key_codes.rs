@@ -157,6 +157,7 @@ impl KeyCode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_modifier(&self) -> bool {
         *self == KeyCode::Mod_L01z || self.modifier_bitmask().is_some()
     }

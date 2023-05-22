@@ -7,11 +7,11 @@ use arduino_hal::{
         Pin,
     },
 };
-use usbd_hid::descriptor::KeyboardReport;
 
 use crate::{
     key::{Default, Key},
     key_codes::KeyCode,
+    mods::mod_tap::ModTap,
 };
 
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
@@ -61,7 +61,6 @@ impl Col {
 
 #[derive(Copy, Clone)]
 pub struct KeyMatrix<const RSIZE: usize, const CSIZE: usize> {
-    // matrix: [[Key<2, 10, 100>; CSIZE]; RSIZE],
     matrix: [[Key; CSIZE]; RSIZE],
 }
 
@@ -95,7 +94,7 @@ impl<const RSIZE: usize, const CSIZE: usize> Matrix<RSIZE, CSIZE> {
         let mut new = Matrix {
             rows,
             cols,
-            state: keymap,
+            state: KeyMatrix::new([[Key::new(KeyCode::________); CSIZE]; RSIZE]),
             callback,
             info,
             wait_cycles: 2,
@@ -106,14 +105,6 @@ impl<const RSIZE: usize, const CSIZE: usize> Matrix<RSIZE, CSIZE> {
         new.rows[new.cur_strobe].set_high();
         new.clear();
         new
-    }
-    pub fn set_debounce(&mut self, debounce: u16) {
-        // set the debounce for each key
-        for r in 0..RSIZE {
-            for c in 0..CSIZE {
-                self.state.matrix[r][c].key.debounce_cycles = debounce as usize;
-            }
-        }
     }
     fn execute_callback(&self, row: usize, col: usize, state: StateType, prevstate: StateType) {
         (self.callback)(row, col, state, prevstate);
@@ -150,72 +141,75 @@ impl<const RSIZE: usize, const CSIZE: usize> Matrix<RSIZE, CSIZE> {
         // str.push_str(&strobe).unwrap();
         // self.execute_info(&str)
     }
-    pub fn poll(&mut self) -> Option<KeyMatrix<RSIZE, CSIZE>> {
+    pub fn poll(&mut self) {
         self.next_strobe();
         let r = self.cur_strobe;
         for c in 0..CSIZE {
-            self.state.matrix[r][c].key.scan(self.cols[c].is_high());
-            if self.state.matrix[r][c].key.state != self.state.matrix[r][c].key.prevstate {
+            self.state.matrix[r][c]
+                .keystate
+                .scan(self.cols[c].is_high());
+            if self.state.matrix[r][c].keystate.state != self.state.matrix[r][c].keystate.prevstate
+            {
                 self.execute_callback(
                     r + 1,
                     c + 1,
-                    self.state.matrix[r][c].key.state,
-                    self.state.matrix[r][c].key.prevstate,
+                    self.state.matrix[r][c].keystate.state,
+                    self.state.matrix[r][c].keystate.prevstate,
                 );
             }
         }
         // TODO it doesn't make sense to return this at the end of every poll...
-        Some(self.state)
+        // Some(self.state)
     }
 }
 
-impl<const RSIZE: usize, const CSIZE: usize> From<KeyMatrix<RSIZE, CSIZE>>
-    for usbd_hid::descriptor::KeyboardReport
-{
-    fn from(matrix: KeyMatrix<RSIZE, CSIZE>) -> Self {
-        let mut keycodes = [0u8; 6];
-        let mut keycode_index = 0;
-        let mut modifier = 0;
-
-        let mut push_keycode = |key| {
-            if keycode_index < keycodes.len() {
-                keycodes[keycode_index] = key;
-                keycode_index += 1;
-            }
-        };
-
-        for c in matrix.matrix.iter() {
-            for k in c.iter() {
-                if k.key.state == StateType::Tap {
-                    let keytup: [KeyCode; 2];
-                    (keytup, modifier) = k.tap();
-                    push_keycode(keytup[0] as u8);
-                    push_keycode(keytup[1] as u8);
-                }
-            }
-        }
-
-        // Scan to generate the correct keycodes given the activated key map
-        // let layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
-        // for (matrix_column, mapping_column) in matrix.matrix.iter().zip(layer_mapping) {
-        //     for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
-        //         if key_pressed.key.state == StateType::Tap
-        //             || key_pressed.key.state == StateType::Hold
-        //         {
-        //             if let Some(bitmask) = mapping_row.modifier_bitmask() {
-        //                 modifier |= bitmask;
-        //             } else {
-        //                 push_keycode(mapping_row as u8);
-        //             }
-        //         }
-        //     }
-        // }
-
-        KeyboardReport {
-            modifier,
-            reserved: 0,
-            leds: 0,
-            keycodes,
-        }
-    }
-}
+// impl<const RSIZE: usize, const CSIZE: usize> From<KeyMatrix<RSIZE, CSIZE>>
+//     for usbd_hid::descriptor::KeyboardReport
+// {
+//     fn from(matrix: KeyMatrix<RSIZE, CSIZE>) -> Self {
+//         let mut keycodes = [0u8; 6];
+//         let mut keycode_index = 0;
+//         let mut modifier = 0;
+//
+//         let mut push_keycode = |key| {
+//             if keycode_index < keycodes.len() {
+//                 keycodes[keycode_index] = key;
+//                 keycode_index += 1;
+//             }
+//         };
+//
+//         for c in matrix.matrix.iter() {
+//             for k in c.iter() {
+//                 if k.key.state == StateType::Tap {
+//                     let keytup: [KeyCode; 2];
+//                     (keytup, modifier) = k.tap();
+//                     push_keycode(keytup[0] as u8);
+//                     push_keycode(keytup[1] as u8);
+//                 }
+//             }
+//         }
+//
+//         // Scan to generate the correct keycodes given the activated key map
+//         // let layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
+//         // for (matrix_column, mapping_column) in matrix.matrix.iter().zip(layer_mapping) {
+//         //     for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
+//         //         if key_pressed.key.state == StateType::Tap
+//         //             || key_pressed.key.state == StateType::Hold
+//         //         {
+//         //             if let Some(bitmask) = mapping_row.modifier_bitmask() {
+//         //                 modifier |= bitmask;
+//         //             } else {
+//         //                 push_keycode(mapping_row as u8);
+//         //             }
+//         //         }
+//         //     }
+//         // }
+//
+//         KeyboardReport {
+//             modifier,
+//             reserved: 0,
+//             leds: 0,
+//             keycodes,
+//         }
+//     }
+// }
