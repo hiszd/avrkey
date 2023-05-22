@@ -9,7 +9,10 @@ use arduino_hal::{
 };
 use usbd_hid::descriptor::KeyboardReport;
 
-use crate::{key_codes::KeyCode, key_mapping};
+use crate::{
+    key::{Default, Key},
+    key_codes::KeyCode,
+};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub enum StateType {
@@ -56,115 +59,49 @@ impl Col {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub struct Key<const DEBOUNCE_CYC: usize, const HOLD_CYC: usize, const IDLE_CYC: usize> {
-    cycles: usize,
-    cycles_off: usize,
-    raw_state: bool,
-    state: StateType,
-    prevstate: StateType,
-    keycode: KeyCode,
-    debounce_cycles: usize,
-    hold_cycles: usize,
-    idle_cycles: usize,
-}
-
-impl<const DEBOUNCE_CYC: usize, const HOLD_CYC: usize, const IDLE_CYC: usize>
-    Key<DEBOUNCE_CYC, HOLD_CYC, IDLE_CYC>
-{
-    fn new() -> Self {
-        Key::<DEBOUNCE_CYC, HOLD_CYC, IDLE_CYC> {
-            cycles: 0,
-            cycles_off: 0,
-            raw_state: false,
-            state: StateType::Off,
-            prevstate: StateType::Off,
-            keycode: KeyCode::________,
-            debounce_cycles: DEBOUNCE_CYC,
-            hold_cycles: HOLD_CYC,
-            idle_cycles: IDLE_CYC,
-        }
-    }
-    /// Perform state change as a result of the scan
-    fn scan(&mut self, is_high: bool) -> bool {
-        // set the raw state to the state of the pin
-        self.raw_state = is_high;
-        if is_high {
-            if !(self.cycles >= usize::MAX) {
-                // increment cycles while pin is high
-                self.cycles += 1;
-            }
-            self.cycles_off = 0;
-        } else {
-            if !(self.cycles_off >= usize::MAX) {
-                self.cycles_off += 1;
-            }
-            // reset cycles since pin is low
-            self.cycles = 0;
-        }
-        if self.cycles >= self.debounce_cycles {
-            if self.state == StateType::Tap && self.cycles >= self.hold_cycles {
-                self.prevstate = self.state;
-                self.state = StateType::Hold;
-            } else {
-                self.prevstate = self.state;
-                self.state = StateType::Tap;
-            }
-            return true;
-        }
-        false
-    }
-    fn keyfunc(&mut self) -> KeyCode {
-        return self.keycode;
-    }
-}
-
 #[derive(Copy, Clone)]
 pub struct KeyMatrix<const RSIZE: usize, const CSIZE: usize> {
-    matrix: [[Key<2, 10, 100>; CSIZE]; RSIZE],
-}
-
-impl<const RSIZE: usize, const CSIZE: usize> Default for KeyMatrix<RSIZE, CSIZE> {
-    fn default() -> Self {
-        Self::new()
-    }
+    // matrix: [[Key<2, 10, 100>; CSIZE]; RSIZE],
+    matrix: [[Key; CSIZE]; RSIZE],
 }
 
 impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
-    pub fn new() -> Self {
-        KeyMatrix {
-            matrix: [[Key::new(); CSIZE]; RSIZE],
-        }
+    pub fn new(keymap: [[Key; CSIZE]; RSIZE]) -> Self {
+        KeyMatrix { matrix: keymap }
     }
 }
 
-pub struct StateMatrix<const RSIZE: usize, const CSIZE: usize> {
+pub struct Matrix<const RSIZE: usize, const CSIZE: usize> {
     rows: [Row; RSIZE],
     cols: [Col; CSIZE],
     state: KeyMatrix<RSIZE, CSIZE>,
-    callback: fn(row: usize, col: usize, state: bool),
+    callback: fn(row: usize, col: usize, state: StateType, prevstate: StateType),
     info: fn(info: &str),
+    push_input: fn(codes: [u8; 6], modifier: u8),
     wait_cycles: u16,
     cycles: u16,
     cur_strobe: usize,
 }
 
-impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
+impl<const RSIZE: usize, const CSIZE: usize> Matrix<RSIZE, CSIZE> {
     pub fn new(
         rows: [Row; RSIZE],
         cols: [Col; CSIZE],
-        callback: fn(row: usize, col: usize, state: bool),
+        callback: fn(row: usize, col: usize, state: StateType, prevstate: StateType),
         info: fn(info: &str),
+        push_input: fn(codes: [u8; 6], modifier: u8),
+        keymap: KeyMatrix<RSIZE, CSIZE>,
     ) -> Self {
-        let mut new = StateMatrix {
+        let mut new = Matrix {
             rows,
             cols,
-            state: KeyMatrix::default(),
+            state: keymap,
             callback,
             info,
             wait_cycles: 2,
             cycles: 0,
             cur_strobe: 0,
+            push_input,
         };
         new.rows[new.cur_strobe].set_high();
         new.clear();
@@ -174,12 +111,12 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         // set the debounce for each key
         for r in 0..RSIZE {
             for c in 0..CSIZE {
-                self.state.matrix[r][c].debounce_cycles = debounce as usize;
+                self.state.matrix[r][c].key.debounce_cycles = debounce as usize;
             }
         }
     }
-    fn execute_callback(&self, row: usize, col: usize, state: bool) {
-        (self.callback)(row, col, state);
+    fn execute_callback(&self, row: usize, col: usize, state: StateType, prevstate: StateType) {
+        (self.callback)(row, col, state, prevstate);
     }
     fn execute_info(&self, info: &str) {
         (self.info)(info);
@@ -214,27 +151,28 @@ impl<const RSIZE: usize, const CSIZE: usize> StateMatrix<RSIZE, CSIZE> {
         // self.execute_info(&str)
     }
     pub fn poll(&mut self) -> Option<KeyMatrix<RSIZE, CSIZE>> {
-        if self.cycles < self.wait_cycles {
-            self.cycles += 1;
-            return None;
-        }
         self.next_strobe();
-        self.cycles = 0;
         let r = self.cur_strobe;
         for c in 0..CSIZE {
-            let state = self.state.matrix[r][c].scan(self.cols[c].is_high());
-            if self.state.matrix[r][c].state != self.state.matrix[r][c].prevstate {
-                self.execute_callback(r + 1, c + 1, state);
+            self.state.matrix[r][c].key.scan(self.cols[c].is_high());
+            if self.state.matrix[r][c].key.state != self.state.matrix[r][c].key.prevstate {
+                self.execute_callback(
+                    r + 1,
+                    c + 1,
+                    self.state.matrix[r][c].key.state,
+                    self.state.matrix[r][c].key.prevstate,
+                );
             }
         }
+        // TODO it doesn't make sense to return this at the end of every poll...
         Some(self.state)
     }
 }
 
-impl<const RSIZE: usize, const CSIZE: usize> From<StateMatrix<RSIZE, CSIZE>>
+impl<const RSIZE: usize, const CSIZE: usize> From<KeyMatrix<RSIZE, CSIZE>>
     for usbd_hid::descriptor::KeyboardReport
 {
-    fn from(matrix: StateMatrix<RSIZE, CSIZE>) -> Self {
+    fn from(matrix: KeyMatrix<RSIZE, CSIZE>) -> Self {
         let mut keycodes = [0u8; 6];
         let mut keycode_index = 0;
         let mut modifier = 0;
@@ -246,19 +184,32 @@ impl<const RSIZE: usize, const CSIZE: usize> From<StateMatrix<RSIZE, CSIZE>>
             }
         };
 
-        // Scan to generate the correct keycodes given the activated key map
-        let layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
-        for (matrix_column, mapping_column) in matrix.state.matrix.iter().zip(layer_mapping) {
-            for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
-                if key_pressed.state == StateType::Tap || key_pressed.state == StateType::Hold {
-                    if let Some(bitmask) = mapping_row.modifier_bitmask() {
-                        modifier |= bitmask;
-                    } else {
-                        push_keycode(mapping_row as u8);
-                    }
+        for c in matrix.matrix.iter() {
+            for k in c.iter() {
+                if k.key.state == StateType::Tap {
+                    let keytup: [KeyCode; 2];
+                    (keytup, modifier) = k.tap();
+                    push_keycode(keytup[0] as u8);
+                    push_keycode(keytup[1] as u8);
                 }
             }
         }
+
+        // Scan to generate the correct keycodes given the activated key map
+        // let layer_mapping = key_mapping::NORMAL_LAYER_MAPPING;
+        // for (matrix_column, mapping_column) in matrix.matrix.iter().zip(layer_mapping) {
+        //     for (key_pressed, mapping_row) in matrix_column.iter().zip(mapping_column) {
+        //         if key_pressed.key.state == StateType::Tap
+        //             || key_pressed.key.state == StateType::Hold
+        //         {
+        //             if let Some(bitmask) = mapping_row.modifier_bitmask() {
+        //                 modifier |= bitmask;
+        //             } else {
+        //                 push_keycode(mapping_row as u8);
+        //             }
+        //         }
+        //     }
+        // }
 
         KeyboardReport {
             modifier,

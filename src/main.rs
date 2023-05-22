@@ -5,10 +5,11 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(non_snake_case)]
 
-mod hid_descriptor;
+mod key;
 mod key_codes;
 mod key_mapping;
 mod keyscanning;
+mod mods;
 
 use arduino_hal::Peripherals;
 use atmega_usbd::UsbBus;
@@ -24,7 +25,7 @@ use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::{descriptor::SerializedDescriptor, hid_class::HIDClass};
 use usbd_serial::SerialPort;
 
-use crate::keyscanning::StateMatrix;
+use crate::keyscanning::{Matrix, StateType};
 
 #[allow(dead_code)]
 fn println(msg: &[u8]) -> bool {
@@ -81,14 +82,6 @@ fn main() -> ! {
         HID_BUS.as_mut().unwrap().force_reset().ok();
     }
 
-    // The latest keyboard report for responding to USB interrupts.
-    let mut key_report: KeyboardReport = KeyboardReport {
-        modifier: 0,
-        reserved: 0,
-        leds: 0,
-        keycodes: [0u8; 6],
-    };
-
     let rows: [Row; 5] = [
         Row::new(pins.a3.into_output().downgrade()),
         Row::new(pins.a2.into_output().downgrade()),
@@ -120,17 +113,26 @@ fn main() -> ! {
         println(info.as_bytes());
     }
 
-    fn callback(row: usize, col: usize, state: bool) {
+    fn callback(row: usize, col: usize, state: StateType, prevstate: StateType) {
         // let blank: String<20> = String::from("                    \n");
         let rowstr: String<2> = String::from(row as u32);
         let colstr: String<2> = String::from(col as u32);
-        let mut str: String<25> = String::from("row: ");
+        let mut str: String<30> = String::from("row: ");
         str.push_str(rowstr.as_str()).unwrap();
         str.push_str(", col: ").unwrap();
         str.push_str(colstr.as_str()).unwrap();
+        str.push_str(match prevstate {
+            StateType::Tap => "p: Tap",
+            StateType::Hold => "p: Hold",
+            StateType::Off => "p: Off",
+            StateType::Idle => "p: Idle",
+        })
+        .unwrap();
         str.push_str(match state {
-            true => " true",
-            false => " false",
+            StateType::Tap => "c: Tap",
+            StateType::Hold => "c: Hold",
+            StateType::Off => "c: Off",
+            StateType::Idle => "c: Idle",
         })
         .unwrap();
         str.push_str("\n").unwrap();
@@ -138,25 +140,14 @@ fn main() -> ! {
         println(&str.into_bytes());
     }
 
-    let mut matrix: StateMatrix<5, 16> = StateMatrix::new(rows, cols, callback, info);
-    matrix.set_debounce(3);
-    // TODO reboot into bootloader if started while escape is pressed.
-    // ISSUE there doesn't appear to be any way of doing this in the HAL currently
-    // let scan = matrix.poll().unwrap();
-    // if scan[0][0] >= 4 {}
-
-    let mut countinit: usize = 0;
-
-    loop {
-        unsafe {
-            if poll_usb() || HID_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured {
-                continue;
-            }
-        }
-
-        if let Some(mat) = matrix.poll() {
-            key_report = mat.into();
-        }
+    // TOTO create way to handle more than 6 codes per poll
+    fn push_input(codes: [u8; 6], modifier: u8) {
+        let key_report = KeyboardReport {
+            modifier,
+            reserved: 0,
+            leds: 0,
+            keycodes: codes,
+        };
         unsafe {
             let usb_hid = USB_HID.as_ref().unwrap_unchecked();
             usb_hid.push_input(&key_report).unwrap_unchecked();
@@ -172,6 +163,32 @@ fn main() -> ! {
             // usb_hid.
             // }
         }
+    }
+
+    let mut matrix: Matrix<5, 16> = Matrix::new(
+        rows,
+        cols,
+        callback,
+        info,
+        push_input,
+        key_mapping::FancyAlice66(),
+    );
+    matrix.set_debounce(3);
+    // TODO reboot into bootloader if started while escape is pressed.
+    // ISSUE there doesn't appear to be any way of doing this in the HAL currently
+    // let scan = matrix.poll().unwrap();
+    // if scan[0][0] >= 4 {}
+
+    let mut countinit: usize = 0;
+
+    loop {
+        unsafe {
+            if poll_usb() || HID_BUS.as_mut().unwrap().state() != UsbDeviceState::Configured {
+                continue;
+            }
+        }
+
+        matrix.poll();
 
         if countinit <= 11 {
             println(b"heyonce ");
