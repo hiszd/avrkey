@@ -173,7 +173,7 @@ fn main() -> ! {
         callback,
         info,
         push_input,
-        key_mapping::FancyAlice66(),
+        key_mapping::FANCY_ALICE66,
     );
     // TODO reboot into bootloader if started while escape is pressed.
     // ISSUE there doesn't appear to be any way of doing this in the HAL currently

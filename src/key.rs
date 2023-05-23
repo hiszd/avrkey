@@ -21,19 +21,19 @@ pub struct Key {
     pub keystate: KeyBase,
 }
 
+pub const fn new_key(KC1: KeyCode) -> Key {
+    Key {
+        keystate: new_keybase(KC1, KeyCode::________),
+    }
+}
+
 pub trait Default {
-    fn new(KC1: KeyCode) -> Self;
     fn tap(&self) -> ([KeyCode; 2], u8);
     fn hold(&self) -> ([KeyCode; 2], u8);
     fn idle(&self) -> ([KeyCode; 2], u8);
 }
 
 impl Default for Key {
-    fn new(KC1: KeyCode) -> Self {
-        Key {
-            keystate: KeyBase::new(KC1, KeyCode::________),
-        }
-    }
     fn tap(&self) -> ([KeyCode; 2], u8) {
         let curcode = self.keystate.keycode[0];
         let mut modi: u8 = 0;
@@ -66,18 +66,19 @@ impl Default for Key {
     }
 }
 
-impl KeyBase {
-    pub fn new(KC1: KeyCode, KC2: KeyCode) -> Self {
-        KeyBase {
-            cycles: 0_u16,
-            raw_state: false,
-            cycles_off: 0_u16,
-            state: StateType::Off,
-            prevstate: StateType::Off,
-            keycode: [KC1, KC2],
-            // TODO create functions to set these after object creation
-        }
+pub const fn new_keybase(KC1: KeyCode, KC2: KeyCode) -> KeyBase {
+    KeyBase {
+        cycles: 0_u16,
+        raw_state: false,
+        cycles_off: 0_u16,
+        state: StateType::Off,
+        prevstate: StateType::Off,
+        keycode: [KC1, KC2],
+        // TODO create functions to set these after object creation
     }
+}
+
+impl KeyBase {
     /// Perform state change as a result of the scan
     pub fn scan(&mut self, is_high: bool) -> bool {
         // if they KeyCode is empty then don't bother processing
@@ -94,15 +95,11 @@ impl KeyBase {
         self.raw_state = is_high;
         if is_high {
             // increment cycles while pin is high
-            if self.cycles < u16::MAX {
-                self.cycles += 1;
-            }
+            self.cycles = self.cycles.saturating_add(1);
             self.cycles_off = 0;
         } else {
             // increment cycles_off while pin is low
-            if self.cycles_off < u16::MAX {
-                self.cycles_off += 1;
-            }
+            self.cycles_off = self.cycles_off.saturating_add(1);
             // reset cycles since pin is low
             self.cycles = 0;
         }

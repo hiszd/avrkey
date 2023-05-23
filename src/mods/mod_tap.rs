@@ -1,5 +1,5 @@
-use crate::key::Key;
-use crate::{key::KeyBase, key_codes::KeyCode};
+use crate::key::{new_keybase, Key};
+use crate::key_codes::KeyCode;
 
 pub trait ModTap {
     fn new_ModTap(KC1: KeyCode, KC2: KeyCode) -> Self;
@@ -11,7 +11,7 @@ pub trait ModTap {
 impl ModTap for Key {
     fn new_ModTap(KC1: KeyCode, KC2: KeyCode) -> Self {
         Key {
-            keystate: KeyBase::new(KC1, KC2),
+            keystate: new_keybase(KC1, KC2),
         }
     }
     fn tap(&self) -> ([KeyCode; 2], u8) {

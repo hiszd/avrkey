@@ -9,7 +9,7 @@ use arduino_hal::{
 };
 
 use crate::{
-    key::{Default, Key},
+    key::{new_key, Default, Key},
     key_codes::KeyCode,
     mods::mod_tap::ModTap,
 };
@@ -64,6 +64,8 @@ pub struct KeyMatrix<const RSIZE: usize, const CSIZE: usize> {
     matrix: [[Key; CSIZE]; RSIZE],
 }
 
+pub const fn new_keymatrix(keymap: [[Key; CSIZE]; RSIZE]) ->
+
 impl<const RSIZE: usize, const CSIZE: usize> KeyMatrix<RSIZE, CSIZE> {
     pub fn new(keymap: [[Key; CSIZE]; RSIZE]) -> Self {
         KeyMatrix { matrix: keymap }
@@ -94,7 +96,7 @@ impl<const RSIZE: usize, const CSIZE: usize> Matrix<RSIZE, CSIZE> {
         let mut new = Matrix {
             rows,
             cols,
-            state: KeyMatrix::new([[Key::new(KeyCode::________); CSIZE]; RSIZE]),
+            state: KeyMatrix::new([[new_key(KeyCode::________); CSIZE]; RSIZE]),
             callback,
             info,
             wait_cycles: 2,
